@@ -315,14 +315,29 @@ function removeUrlsAndPercentEncoding(text) {
 }
 
 /**
+ * 貼り付けた文章に含まれるMarkdown記法のノイズを取り除きます。
+ * 見出し（#）や箇条書き（*）は改行に変換し、太字（**）の記号は削除します。
+ * ブラウザが段落の改行を保持せずに1行へつなげてしまった場合でも、
+ * これらの記号を手がかりに元の段落・箇条書きの区切りを復元します。
+ */
+function stripMarkdownNoise(text) {
+  return text
+    .replace(/[ \t]*#{1,6}[ \t]+/g, "\n")
+    .replace(/\*\*/g, "")
+    .replace(/[ \t]*\*[ \t]*/g, "\n");
+}
+
+/**
  * 貼り付ける文章を整形します。
- * 絵文字・URL・%エンコード文字列を削除し、空白やタブしか含まない行を取り除きます。
+ * 絵文字・URL・%エンコード文字列・Markdown記法を削除し、
+ * 空白やタブしか含まない行を取り除きます。
  */
 function sanitizePastedText(text) {
-  return removeUrlsAndPercentEncoding(removeEmojis(text))
-    .replace(/\r\n?/g, "\n")
+  return stripMarkdownNoise(removeUrlsAndPercentEncoding(removeEmojis(text)))
+    .replace(/\r\n?|\u2028|\u2029/g, "\n")
     .split("\n")
-    .filter((line) => line.trim().length > 0)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
     .join("\n");
 }
 
