@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ブラウザだけで使える、日本語の文章読み上げアプリです。">
+  <title>文章読み上げ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="app-header">
+      <div class="title-icon" aria-hidden="true">♬</div>
+      <div>
+        <h1>文章読み上げ</h1>
+        <p>入力した文章をブラウザの音声で読み上げます</p>
+      </div>
+    </header>
+
+    <section class="card" aria-labelledby="input-label">
+      <div class="input-heading">
+        <label id="input-label" for="text-input">読み上げる文章</label>
+        <span id="character-count" aria-live="polite">0文字</span>
+      </div>
+      <textarea
+        id="text-input"
+        rows="12"
+        placeholder="ここに読み上げたい日本語の文章を入力、または貼り付けてください。"
+        aria-describedby="input-help"
+      ></textarea>
+      <p id="input-help" class="input-help">入力欄へ貼り付けると、以前の文章を消してすぐに読み上げます。</p>
+
+      <div class="settings" aria-label="読み上げ設定">
+        <div class="setting-field voice-field">
+          <label for="voice-select">音声</label>
+          <select id="voice-select">
+            <option value="">音声を読み込んでいます…</option>
+          </select>
+        </div>
+
+        <div class="setting-field speed-field">
+          <div class="speed-label">
+            <label for="rate-input">読み上げ速度</label>
+            <output id="rate-output" for="rate-input">2.0倍</output>
+          </div>
+          <input id="rate-input" type="range" min="0.5" max="2" step="0.1" value="2" aria-valuetext="2.0倍">
+          <div class="range-labels" aria-hidden="true"><span>0.5倍</span><span>2.0倍</span></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="speak-button" class="button button-primary" type="button">
+          <span aria-hidden="true">▶</span> 読み上げ
+        </button>
+        <button id="clipboard-button" class="button button-clipboard" type="button">
+          <span aria-hidden="true">📋</span> クリップボードから読み上げ
+        </button>
+        <button id="pause-button" class="button button-secondary" type="button" disabled>
+          <span aria-hidden="true">⏸</span> 一時停止
+        </button>
+        <button id="stop-button" class="button button-danger" type="button" disabled>
+          <span aria-hidden="true">■</span> 停止
+        </button>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite">待機中</p>
+    </section>
+
+    <section id="current-section" class="card current-card" aria-labelledby="current-title" hidden>
+      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span>現在読み上げ中</h2>
+      <p id="current-text"></p>
+      <p id="progress-text" class="progress-text"></p>
+    </section>
+
+    <noscript>このアプリを使用するにはJavaScriptを有効にしてください。</noscript>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
