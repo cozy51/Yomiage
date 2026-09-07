@@ -261,10 +261,24 @@ input[type="range"] {
 }
 
 .current-card {
-  margin-top: 20px;
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 100;
+  width: min(640px, calc(100% - 32px));
+  max-height: min(50vh, 380px);
+  overflow-y: auto;
+  margin-top: 0;
   border-color: #bfdbfe;
   background: var(--primary-soft);
-  box-shadow: none;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
+  transform: translateX(-50%);
+  animation: current-card-in .2s ease-out;
+}
+
+@keyframes current-card-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 .current-card h2 {
@@ -367,6 +381,12 @@ input[type="range"] {
 
   .button {
     padding: 0 12px;
+  }
+
+  .current-card {
+    bottom: 12px;
+    width: calc(100% - 20px);
+    max-height: min(55vh, 340px);
   }
 }
 
