@@ -305,11 +305,21 @@ function removeEmojis(text) {
 }
 
 /**
+ * 貼り付けた文章からURLと%エンコードされた文字列を除去します。
+ * URLを囲む丸括弧（半角・全角）が残らないよう、括弧ごと取り除きます。
+ */
+function removeUrlsAndPercentEncoding(text) {
+  return text
+    .replace(/[(（]?https?:\/\/\S+[)）]?/gi, "")
+    .replace(/(?:%[0-9A-Fa-f]{2})+/g, "");
+}
+
+/**
  * 貼り付ける文章を整形します。
- * 絵文字を削除し、空白やタブしか含まない行を取り除きます。
+ * 絵文字・URL・%エンコード文字列を削除し、空白やタブしか含まない行を取り除きます。
  */
 function sanitizePastedText(text) {
-  return removeEmojis(text)
+  return removeUrlsAndPercentEncoding(removeEmojis(text))
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .filter((line) => line.trim().length > 0)
