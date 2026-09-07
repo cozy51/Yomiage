@@ -31,6 +31,9 @@
 - `index.html`
 - `style.css`
 - `script.js`
+- `favicon.svg`
+- `favicon.ico`
+- `apple-touch-icon.png`
 
 GitHub Pagesではリポジトリのルートを公開元に設定してください。Vercelなどではフレームワークを選ばず、静的サイトとしてデプロイできます。
 
@@ -46,8 +49,11 @@ GitHub Pagesではリポジトリのルートを公開元に設定してくだ�
 
 ```text
 .
-├── index.html  # 画面構造
-├── style.css   # レスポンシブデザイン
-├── script.js   # 読み上げ・長文分割・操作処理
-└── README.md   # 使い方
+├── index.html             # 画面構造
+├── style.css              # レスポンシブデザイン
+├── script.js              # 読み上げ・長文分割・操作処理
+├── favicon.svg            # ファビコン（SVG）
+├── favicon.ico            # ファビコン（ICO、非対応ブラウザ向け）
+├── apple-touch-icon.png   # iOSホーム画面用アイコン
+└── README.md              # 使い方
 ```
