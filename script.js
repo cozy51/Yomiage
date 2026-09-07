@@ -394,6 +394,13 @@ clipboardButton.addEventListener("click", readFromClipboard);
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
 
+// ポップアップの枠外を押すと、閉じて読み上げを停止します。
+// click ではなくpointerdownで判定することで、他ボタンのclickより先に処理します。
+document.addEventListener("pointerdown", (event) => {
+  if (currentSection.hidden || currentSection.contains(event.target)) return;
+  stopSpeaking();
+});
+
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
 window.addEventListener("pagehide", () => stopSpeaking(false));
 window.addEventListener("beforeunload", () => synthesis.cancel());
