@@ -50,15 +50,11 @@ input {
 }
 
 .title-icon {
-  display: grid;
+  display: block;
   width: 54px;
   height: 54px;
   flex: 0 0 auto;
-  place-items: center;
   border-radius: 16px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 27px;
   box-shadow: 0 8px 22px rgb(37 99 235 / 24%);
 }
 
@@ -335,7 +331,6 @@ input[type="range"] {
     width: 46px;
     height: 46px;
     border-radius: 13px;
-    font-size: 23px;
   }
 
   .app-header p {
