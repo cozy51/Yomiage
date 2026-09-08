@@ -152,6 +152,25 @@ function renderCurrentText(text, highlightStart = 0, highlightLength = 0) {
   currentText.append(mark, document.createTextNode(text.slice(safeEnd)));
 }
 
+/**
+ * iOSのページコントロールのように、チャンクの進み具合をドットで表示します。
+ * 読み終えたチャンクは塗りつぶし、現在のチャンクは強調し、これからのチャンクは薄く表示します。
+ */
+function renderProgressDots(current, total) {
+  progressText.setAttribute("role", "img");
+  progressText.setAttribute("aria-label", `${current} / ${total}`);
+
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < total; index += 1) {
+    const dot = document.createElement("span");
+    dot.className = "progress-dot";
+    if (index < current - 1) dot.classList.add("is-done");
+    else if (index === current - 1) dot.classList.add("is-current");
+    fragment.append(dot);
+  }
+  progressText.replaceChildren(fragment);
+}
+
 // boundaryイベントの位置から、日本語の単語として強調する範囲を求めます。
 function getHighlightRange(text, charIndex, charLength) {
   const start = Math.max(0, Math.min(charIndex, text.length));
@@ -231,9 +250,13 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   const initialRange = getHighlightRange(activeChunk, safeStartOffset, 0);
   renderCurrentText(activeChunk, initialRange.start, initialRange.length);
-  progressText.textContent = currentChunkIndex < realChunkCount
-    ? `${currentChunkIndex + 1} / ${realChunkCount}`
-    : "読み上げ終了";
+  if (currentChunkIndex < realChunkCount) {
+    renderProgressDots(currentChunkIndex + 1, realChunkCount);
+  } else {
+    progressText.removeAttribute("role");
+    progressText.removeAttribute("aria-label");
+    progressText.textContent = "読み上げ終了";
+  }
   currentSection.hidden = false;
 
   const isStaleUtterance = () => !isReading || activeSessionId !== sessionId || activeUtteranceId !== utteranceId;
