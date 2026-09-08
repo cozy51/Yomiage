@@ -269,11 +269,22 @@ input[type="range"] {
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   margin-top: 0;
-  border-color: #bfdbfe;
+  border: 2px solid #bfdbfe;
   background: var(--primary-soft);
   box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
   transform: translate(-50%, -50%);
   animation: current-card-in .2s ease-out;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+
+.current-card:hover {
+  border-color: #93c5fd;
+}
+
+.current-card:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 @keyframes current-card-in {
@@ -296,6 +307,37 @@ input[type="range"] {
   border-radius: 50%;
   background: var(--primary);
   animation: pulse 1.3s infinite;
+}
+
+/* 一時停止中は、色・アイコン・アニメーションで再生中と明確に区別します。 */
+.current-card.is-paused {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.current-card.is-paused:hover {
+  border-color: #fbbf24;
+}
+
+.current-card.is-paused h2 {
+  color: #92400e;
+}
+
+.current-card.is-paused .speaking-dot {
+  background: #f59e0b;
+  border-radius: 2px;
+  animation: none;
+}
+
+.current-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: .8rem;
+  text-align: center;
+}
+
+.current-card.is-paused .current-hint {
+  color: #92400e;
 }
 
 #current-text {

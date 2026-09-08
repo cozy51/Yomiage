@@ -69,10 +69,11 @@
       <p id="status" class="status" role="status" aria-live="polite">待機中</p>
     </section>
 
-    <section id="current-section" class="card current-card" aria-labelledby="current-title" hidden>
-      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span>現在読み上げ中</h2>
+    <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" role="button" aria-pressed="false" hidden>
+      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span></h2>
       <p id="current-text"></p>
       <p id="progress-text" class="progress-text"></p>
+      <p class="current-hint">タップまたはクリックで一時停止 / 再生</p>
     </section>
 
     <noscript>このアプリを使用するにはJavaScriptを有効にしてください。</noscript>
