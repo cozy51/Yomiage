@@ -22,8 +22,11 @@ const MAX_CHUNK_LENGTH = 180;
 let voices = [];
 let chunks = [];
 let currentChunkIndex = 0;
+let currentChunkOffset = 0;
 let isReading = false;
+let isPaused = false;
 let sessionId = 0;
+let utteranceId = 0;
 
 /**
  * ブラウザが提供する音声を取得し、日本語音声を先頭にして表示します。
@@ -196,18 +199,25 @@ function showError(message) {
   statusText.classList.add("error");
 }
 
-// 現在のチャンクを読み上げます。完了すると次のチャンクへ進みます。
-function speakCurrentChunk(activeSessionId) {
+// 現在のチャンクをstartOffset文字目から読み上げます。完了すると次のチャンクへ進みます。
+// 一時停止からの再開もこの関数を使い、続きの文字列から新しい発話を開始します。
+function speakCurrentChunk(activeSessionId, startOffset = 0) {
   if (!isReading || activeSessionId !== sessionId) return;
 
   if (currentChunkIndex >= chunks.length) {
     isReading = false;
+    isPaused = false;
     currentSection.hidden = true;
     updateControls("finished");
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(chunks[currentChunkIndex]);
+  const activeChunk = chunks[currentChunkIndex];
+  const safeStartOffset = Math.max(0, Math.min(startOffset, activeChunk.length));
+  currentChunkOffset = safeStartOffset;
+  const activeUtteranceId = ++utteranceId;
+
+  const utterance = new SpeechSynthesisUtterance(activeChunk.slice(safeStartOffset));
   const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
   if (selectedVoice) {
     utterance.voice = selectedVoice;
@@ -217,29 +227,34 @@ function speakCurrentChunk(activeSessionId) {
   }
   utterance.rate = Number(rateInput.value);
 
-  const activeChunk = chunks[currentChunkIndex];
-  const initialRange = getHighlightRange(activeChunk, 0, 0);
+  const initialRange = getHighlightRange(activeChunk, safeStartOffset, 0);
   renderCurrentText(activeChunk, initialRange.start, initialRange.length);
   progressText.textContent = `${currentChunkIndex + 1} / ${chunks.length}`;
   currentSection.hidden = false;
 
+  const isStaleUtterance = () => !isReading || activeSessionId !== sessionId || activeUtteranceId !== utteranceId;
+
   // ブラウザから読み上げ位置が通知されるたび、該当する語句を強調します。
+  // charIndexは発話に渡した部分文字列を基準とするため、safeStartOffset分を足して元の文字列上の位置に直します。
   utterance.onboundary = (event) => {
-    if (!isReading || activeSessionId !== sessionId) return;
-    const range = getHighlightRange(activeChunk, event.charIndex, event.charLength || 0);
+    if (isStaleUtterance()) return;
+    const range = getHighlightRange(activeChunk, safeStartOffset + event.charIndex, event.charLength || 0);
+    currentChunkOffset = range.start;
     renderCurrentText(activeChunk, range.start, range.length);
   };
 
   utterance.onend = () => {
-    if (!isReading || activeSessionId !== sessionId) return;
+    if (isStaleUtterance()) return;
     currentChunkIndex += 1;
+    currentChunkOffset = 0;
     speakCurrentChunk(activeSessionId);
   };
 
   utterance.onerror = (event) => {
-    // cancel / interrupted は停止操作や再生し直した際にも発生するため表示しません。
-    if (!isReading || activeSessionId !== sessionId || ["canceled", "interrupted"].includes(event.error)) return;
+    // cancel / interrupted は、停止・一時停止・再生し直した際にも発生するため表示しません。
+    if (isStaleUtterance() || ["canceled", "interrupted"].includes(event.error)) return;
     isReading = false;
+    isPaused = false;
     updateControls("idle");
     showError("読み上げ中にエラーが発生しました。別の音声をお試しください。");
   };
@@ -260,26 +275,34 @@ function startSpeaking() {
   sessionId += 1;
   chunks = splitText(text);
   currentChunkIndex = 0;
+  currentChunkOffset = 0;
   isReading = true;
+  isPaused = false;
   updateControls("speaking");
   speakCurrentChunk(sessionId);
 }
 
+// speechSynthesisのpause/resumeはブラウザによって再開に失敗することがあるため使用せず、
+// 一時停止時は現在位置を記録して読み上げをcancelし、再開時はその続きから新しい発話を始めます。
 function togglePause() {
   if (!isReading) return;
 
-  if (synthesis.paused) {
-    synthesis.resume();
+  if (isPaused) {
+    isPaused = false;
     updateControls("speaking");
+    speakCurrentChunk(sessionId, currentChunkOffset);
   } else {
-    synthesis.pause();
+    isPaused = true;
     updateControls("paused");
+    synthesis.cancel();
   }
 }
 
 function stopSpeaking(showIdleState = true) {
   sessionId += 1;
   isReading = false;
+  isPaused = false;
+  currentChunkOffset = 0;
   synthesis.cancel();
   currentSection.hidden = true;
   if (showIdleState) updateControls("idle");
