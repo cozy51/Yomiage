@@ -12,6 +12,7 @@ const pauseButton = document.getElementById("pause-button");
 const stopButton = document.getElementById("stop-button");
 const statusText = document.getElementById("status");
 const currentSection = document.getElementById("current-section");
+const currentTitleText = document.getElementById("current-title-text");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
 
@@ -169,12 +170,13 @@ function getHighlightRange(text, charIndex, charLength) {
   return { start, length: character.length };
 }
 
-// 再生状態に合わせてボタンと案内表示を更新します。
+// 再生状態に合わせてボタン・案内表示・ポップアップの見た目を更新します。
 function updateControls(state) {
   const active = state === "speaking" || state === "paused";
+  const paused = state === "paused";
   pauseButton.disabled = !active;
   stopButton.disabled = !active;
-  pauseButton.innerHTML = state === "paused"
+  pauseButton.innerHTML = paused
     ? '<span aria-hidden="true">▶</span> 再開'
     : '<span aria-hidden="true">⏸</span> 一時停止';
   statusText.classList.remove("error");
@@ -183,6 +185,10 @@ function updateControls(state) {
   if (state === "paused") statusText.textContent = "一時停止中です";
   if (state === "idle") statusText.textContent = "待機中";
   if (state === "finished") statusText.textContent = "読み上げが完了しました";
+
+  currentSection.classList.toggle("is-paused", paused);
+  currentSection.setAttribute("aria-pressed", String(paused));
+  currentTitleText.textContent = paused ? "一時停止中" : "現在読み上げ中";
 }
 
 function showError(message) {
@@ -424,6 +430,19 @@ stopButton.addEventListener("click", () => stopSpeaking());
 document.addEventListener("pointerdown", (event) => {
   if (currentSection.hidden || currentSection.contains(event.target)) return;
   stopSpeaking();
+});
+
+// ポップアップ内をクリック（タップ）すると、一時停止・再生をトグルします。
+// テキスト選択（コピー目的のドラッグ操作）の直後は誤動作を避けるため無視します。
+currentSection.addEventListener("click", () => {
+  if (window.getSelection()?.toString()) return;
+  togglePause();
+});
+
+currentSection.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  togglePause();
 });
 
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
