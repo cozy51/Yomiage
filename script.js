@@ -18,9 +18,11 @@ const progressText = document.getElementById("progress-text");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
+const FINISH_ANNOUNCEMENT = "以上で読み上げを終了します。";
 
 let voices = [];
 let chunks = [];
+let realChunkCount = 0;
 let currentChunkIndex = 0;
 let currentChunkOffset = 0;
 let isReading = false;
@@ -229,7 +231,9 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   const initialRange = getHighlightRange(activeChunk, safeStartOffset, 0);
   renderCurrentText(activeChunk, initialRange.start, initialRange.length);
-  progressText.textContent = `${currentChunkIndex + 1} / ${chunks.length}`;
+  progressText.textContent = currentChunkIndex < realChunkCount
+    ? `${currentChunkIndex + 1} / ${realChunkCount}`
+    : "読み上げ終了";
   currentSection.hidden = false;
 
   const isStaleUtterance = () => !isReading || activeSessionId !== sessionId || activeUtteranceId !== utteranceId;
@@ -273,7 +277,10 @@ function startSpeaking() {
 
   synthesis.cancel();
   sessionId += 1;
-  chunks = splitText(text);
+  const realChunks = splitText(text);
+  realChunkCount = realChunks.length;
+  // 最後に終了アナウンスを疑似チャンクとして追加し、読み上げ完了後にひと言添えてから閉じます。
+  chunks = [...realChunks, FINISH_ANNOUNCEMENT];
   currentChunkIndex = 0;
   currentChunkOffset = 0;
   isReading = true;
