@@ -360,8 +360,39 @@ input[type="range"] {
 }
 
 .progress-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   margin: 9px 0 0;
   text-align: right;
+}
+
+/* iOSのページコントロールのように、チャンクの進み具合をドットで示します。 */
+.progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  transition: background-color .15s, transform .15s;
+}
+
+.progress-dot.is-done {
+  background: #93c5fd;
+}
+
+.progress-dot.is-current {
+  background: var(--primary);
+  transform: scale(1.4);
+}
+
+.current-card.is-paused .progress-dot.is-done {
+  background: #fde68a;
+}
+
+.current-card.is-paused .progress-dot.is-current {
+  background: #f59e0b;
 }
 
 [hidden] {
