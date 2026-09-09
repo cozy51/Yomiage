@@ -20,6 +20,22 @@ const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
 const FINISH_ANNOUNCEMENT = "以上で読み上げを終了します。";
 
+// 読み上げが無言のまま止まってしまう不具合を検知し、自動で復帰するための設定です。
+// ブラウザによっては1回の発話が15秒ほどを超えると、onend/onerrorのどちらも発火せずに停止します。
+const STALL_CHECK_INTERVAL = 1000;
+const STALL_GRACE_MS = 5000;
+const ESTIMATED_MS_PER_CHARACTER = 220;
+const STALL_EXTRA_MARGIN_MS = 6000;
+const RESTART_DELAY_MS = 150;
+const MAX_SKIP_ATTEMPTS = 3;
+const SKIP_STEP_LENGTH = 4;
+const MAX_FAILURE_STREAK = 4;
+const KEEP_ALIVE_INTERVAL = 10000;
+const RECOVERY_NOTICE_DURATION = 4000;
+
+// pause/resumeによる時間切れ対策はパソコン向けブラウザでのみ有効なため、端末を判定します。
+const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 let voices = [];
 let chunks = [];
 let realChunkCount = 0;
@@ -29,6 +45,22 @@ let isReading = false;
 let isPaused = false;
 let sessionId = 0;
 let utteranceId = 0;
+
+// 停止検知（ウォッチドッグ）で使う状態です。
+let watchdogTimerId = 0;
+let keepAliveTimerId = 0;
+let noticeTimerId = 0;
+let restartTimerId = 0;
+let lastProgressAt = 0;
+let boundaryCount = 0;
+let maxBoundaryGap = 0;
+let expectedDurationMs = 0;
+let lastSpokenOffset = 0;
+let recoveryOffset = -1;
+let skipAttempts = 0;
+let failureStreak = 0;
+let hasSpokenAnything = false;
+let isRecovering = false;
 
 /**
  * ブラウザが提供する音声を取得し、日本語音声を先頭にして表示します。
@@ -75,11 +107,23 @@ function loadVoices() {
 }
 
 /**
+ * 読み上げエンジンが内部でSSML（XML）を組み立てる場合に、
+ * 「&」「<」「>」があると合成に失敗して無言のまま止まることがあります。
+ * 見た目と文字数を変えずに済む全角記号へ置き換えて、その停止を防ぎます。
+ */
+function replaceUnsafeSymbols(text) {
+  return text
+    .replace(/&/g, "＆")
+    .replace(/</g, "＜")
+    .replace(/>/g, "＞");
+}
+
+/**
  * 長文が途中で止まりにくいよう、句読点や改行を優先して分割します。
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  const normalized = replaceUnsafeSymbols(text.replace(/\r\n?/g, "\n")).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
@@ -220,6 +264,133 @@ function showError(message) {
   statusText.classList.add("error");
 }
 
+// 自動で読み上げ位置を進めたことを、一時的に案内表示へ出します。
+function showRecoveryNotice(message) {
+  window.clearTimeout(noticeTimerId);
+  statusText.classList.remove("error");
+  statusText.textContent = message;
+  noticeTimerId = window.setTimeout(() => {
+    if (isReading && !isPaused) updateControls("speaking");
+  }, RECOVERY_NOTICE_DURATION);
+}
+
+/**
+ * 止まった位置から少しだけ先へ進んだ位置を返します。
+ * やり直すたびに飛ばす量を増やしつつ、読み飛ばす文字数は最小限にとどめます。
+ */
+function findSkipOffset(text, from, attempt) {
+  return Math.min(from + SKIP_STEP_LENGTH * Math.max(1, attempt), text.length);
+}
+
+/**
+ * 読み上げが止まった、または失敗したときに、続きから読み直します。
+ * 直前の停止位置より進んでいれば同じ位置から、進んでいなければ少し先へ飛ばします。
+ * 同じ場所で繰り返し止まる場合は、その文をあきらめて次の文へ進みます。
+ * 一度も読み進められないまま失敗が続く場合は、環境側の問題としてエラーを表示します。
+ */
+function recoverFromInterruption(isError) {
+  const activeSessionId = sessionId;
+  const activeChunk = chunks[currentChunkIndex] || "";
+  const stalledOffset = Math.max(currentChunkOffset, lastSpokenOffset);
+  const stalledChunkIndex = currentChunkIndex;
+
+  // 止まった発話に紐づくイベントを無効化してから、読み上げを解除します。
+  // 内部的に一時停止状態のまま固まっている場合があるため、resumeしてからcancelします。
+  isRecovering = true;
+  utteranceId += 1;
+  synthesis.resume();
+  synthesis.cancel();
+
+  failureStreak += 1;
+  if (failureStreak > MAX_FAILURE_STREAK) {
+    // 何度やり直しても1文字も進まない場合は、音声そのものが使えないと判断します。
+    isReading = false;
+    isPaused = false;
+    stopPlaybackTimers();
+    currentSection.hidden = true;
+    updateControls("idle");
+    showError("読み上げを続けられませんでした。別の音声をお試しください。");
+    return;
+  }
+
+  const madeProgress = stalledOffset > recoveryOffset;
+  if (madeProgress) skipAttempts = 0;
+  else skipAttempts += 1;
+
+  const nextOffset = madeProgress ? stalledOffset : findSkipOffset(activeChunk, stalledOffset, skipAttempts);
+  const skipToNextChunk = skipAttempts > MAX_SKIP_ATTEMPTS || nextOffset >= activeChunk.length;
+
+  const trouble = isError ? "読み上げに失敗したため" : "読み上げが止まったため";
+  showRecoveryNotice(skipToNextChunk
+    ? `${trouble}、次の文へ進みます`
+    : `${trouble}、少し先から読み上げます`);
+
+  // cancel直後のspeakは無視されることがあるため、少しだけ間をあけてから再開します。
+  window.clearTimeout(restartTimerId);
+  restartTimerId = window.setTimeout(() => {
+    isRecovering = false;
+    if (!isReading || isPaused || activeSessionId !== sessionId) return;
+
+    if (skipToNextChunk) {
+      currentChunkIndex = stalledChunkIndex + 1;
+      currentChunkOffset = 0;
+      recoveryOffset = -1;
+      skipAttempts = 0;
+      speakCurrentChunk(activeSessionId);
+      return;
+    }
+
+    recoveryOffset = nextOffset;
+    speakCurrentChunk(activeSessionId, nextOffset);
+  }, RESTART_DELAY_MS);
+}
+
+/**
+ * 一定時間ごとに読み上げが進んでいるかを確認します。
+ * boundaryイベントの間隔から判断し、通知が届かないブラウザでは
+ * 文字数から見積もった所要時間を目安にします。
+ */
+function checkForStall() {
+  if (!isReading || isPaused || isRecovering) return;
+
+  const idleMs = Date.now() - lastProgressAt;
+  const limitMs = boundaryCount >= 3
+    ? Math.max(STALL_GRACE_MS, maxBoundaryGap * 3)
+    : expectedDurationMs + STALL_EXTRA_MARGIN_MS;
+
+  if (idleMs < limitMs) return;
+  recoverFromInterruption(false);
+}
+
+// 読み上げ中だけ、停止検知と長文対策のタイマーを動かします。
+function startPlaybackTimers() {
+  stopPlaybackTimers();
+  watchdogTimerId = window.setInterval(checkForStall, STALL_CHECK_INTERVAL);
+  // 長い発話が15秒ほどで勝手に止まるブラウザの不具合を避けるため、定期的に再開を促します。
+  // パソコン向けブラウザではpauseとresumeを続けて呼ぶことで、内部の時間切れを回避できます。
+  keepAliveTimerId = window.setInterval(() => {
+    if (!isReading || isPaused || isRecovering) return;
+    if (isMobileBrowser) {
+      synthesis.resume();
+      return;
+    }
+    synthesis.pause();
+    synthesis.resume();
+  }, KEEP_ALIVE_INTERVAL);
+}
+
+function stopPlaybackTimers() {
+  window.clearInterval(watchdogTimerId);
+  window.clearInterval(keepAliveTimerId);
+  window.clearTimeout(noticeTimerId);
+  window.clearTimeout(restartTimerId);
+  watchdogTimerId = 0;
+  keepAliveTimerId = 0;
+  noticeTimerId = 0;
+  restartTimerId = 0;
+  isRecovering = false;
+}
+
 // 現在のチャンクをstartOffset文字目から読み上げます。完了すると次のチャンクへ進みます。
 // 一時停止からの再開もこの関数を使い、続きの文字列から新しい発話を開始します。
 function speakCurrentChunk(activeSessionId, startOffset = 0) {
@@ -228,17 +399,32 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   if (currentChunkIndex >= chunks.length) {
     isReading = false;
     isPaused = false;
+    stopPlaybackTimers();
     currentSection.hidden = true;
-    updateControls("finished");
+    if (hasSpokenAnything) updateControls("finished");
+    else showError("読み上げを開始できませんでした。別の音声をお試しください。");
     return;
   }
 
   const activeChunk = chunks[currentChunkIndex];
   const safeStartOffset = Math.max(0, Math.min(startOffset, activeChunk.length));
   currentChunkOffset = safeStartOffset;
+
+  // 読み上げる文字が残っていない場合は、発話せずに次の文へ進みます。
+  // 空の発話はブラウザによってendイベントが届かず、止まったままになることがあります。
+  const spokenText = activeChunk.slice(safeStartOffset);
+  if (!spokenText.trim()) {
+    currentChunkIndex += 1;
+    currentChunkOffset = 0;
+    recoveryOffset = -1;
+    skipAttempts = 0;
+    speakCurrentChunk(activeSessionId);
+    return;
+  }
+
   const activeUtteranceId = ++utteranceId;
 
-  const utterance = new SpeechSynthesisUtterance(activeChunk.slice(safeStartOffset));
+  const utterance = new SpeechSynthesisUtterance(spokenText);
   const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
   if (selectedVoice) {
     utterance.voice = selectedVoice;
@@ -246,7 +432,15 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   } else {
     utterance.lang = "ja-JP";
   }
-  utterance.rate = Number(rateInput.value);
+  const rate = Number(rateInput.value) || 1;
+  utterance.rate = rate;
+
+  // 停止検知の基準を、この発話に合わせて初期化します。
+  lastProgressAt = Date.now();
+  lastSpokenOffset = safeStartOffset;
+  boundaryCount = 0;
+  maxBoundaryGap = 0;
+  expectedDurationMs = (spokenText.length * ESTIMATED_MS_PER_CHARACTER) / rate;
 
   const initialRange = getHighlightRange(activeChunk, safeStartOffset, 0);
   renderCurrentText(activeChunk, initialRange.start, initialRange.length);
@@ -265,25 +459,43 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   // charIndexは発話に渡した部分文字列を基準とするため、safeStartOffset分を足して元の文字列上の位置に直します。
   utterance.onboundary = (event) => {
     if (isStaleUtterance()) return;
-    const range = getHighlightRange(activeChunk, safeStartOffset + event.charIndex, event.charLength || 0);
+
+    // 読み上げが進んでいる証拠として、通知の間隔を記録します。
+    const now = Date.now();
+    if (boundaryCount > 0) maxBoundaryGap = Math.max(maxBoundaryGap, now - lastProgressAt);
+    boundaryCount += 1;
+    lastProgressAt = now;
+    failureStreak = 0;
+    hasSpokenAnything = true;
+
+    // ハイライト位置は単語の先頭へ戻ることがあるため、到達位置は別に記録します。
+    const spokenOffset = safeStartOffset + event.charIndex;
+    lastSpokenOffset = Math.max(lastSpokenOffset, spokenOffset);
+
+    const range = getHighlightRange(activeChunk, spokenOffset, event.charLength || 0);
     currentChunkOffset = range.start;
     renderCurrentText(activeChunk, range.start, range.length);
   };
 
   utterance.onend = () => {
     if (isStaleUtterance()) return;
+    hasSpokenAnything = true;
     currentChunkIndex += 1;
     currentChunkOffset = 0;
+    recoveryOffset = -1;
+    skipAttempts = 0;
+    failureStreak = 0;
     speakCurrentChunk(activeSessionId);
   };
 
+  // 一部の記号やオンライン音声の通信状況が原因で、特定の箇所だけ合成に失敗することがあります。
+  // その場合もここで終わらせず、少し先から読み上げをやり直して続きを再生します。
   utterance.onerror = (event) => {
-    // cancel / interrupted は、停止・一時停止・再生し直した際にも発生するため表示しません。
+    // cancel / interrupted は、停止・一時停止・再生し直した際にも発生するため無視します。
     if (isStaleUtterance() || ["canceled", "interrupted"].includes(event.error)) return;
-    isReading = false;
-    isPaused = false;
-    updateControls("idle");
-    showError("読み上げ中にエラーが発生しました。別の音声をお試しください。");
+    if (isRecovering) return;
+    console.warn("読み上げでエラーが発生しました。", event.error);
+    recoverFromInterruption(true);
   };
 
   synthesis.speak(utterance);
@@ -306,9 +518,14 @@ function startSpeaking() {
   chunks = [...realChunks, FINISH_ANNOUNCEMENT];
   currentChunkIndex = 0;
   currentChunkOffset = 0;
+  recoveryOffset = -1;
+  skipAttempts = 0;
+  failureStreak = 0;
+  hasSpokenAnything = false;
   isReading = true;
   isPaused = false;
   updateControls("speaking");
+  startPlaybackTimers();
   speakCurrentChunk(sessionId);
 }
 
@@ -320,9 +537,11 @@ function togglePause() {
   if (isPaused) {
     isPaused = false;
     updateControls("speaking");
+    startPlaybackTimers();
     speakCurrentChunk(sessionId, currentChunkOffset);
   } else {
     isPaused = true;
+    stopPlaybackTimers();
     updateControls("paused");
     synthesis.cancel();
   }
@@ -333,6 +552,10 @@ function stopSpeaking(showIdleState = true) {
   isReading = false;
   isPaused = false;
   currentChunkOffset = 0;
+  recoveryOffset = -1;
+  skipAttempts = 0;
+  failureStreak = 0;
+  stopPlaybackTimers();
   synthesis.cancel();
   currentSection.hidden = true;
   if (showIdleState) updateControls("idle");
