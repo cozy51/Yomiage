@@ -15,7 +15,7 @@
 // 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
 // Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
 // （コードを変えずに、別のモデルをすぐ試せるようにするためです。）
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 // 音声や画像を作るためのモデルは、文章の読み取りには使えないため候補から除きます。
@@ -203,7 +203,7 @@ module.exports = async function handler(request, response) {
         const availableModels = await listAvailableModels(apiKey);
         console.error("使用したモデル名:", model, "/ 利用できるモデル:", availableModels.join(", ") || "（取得できませんでした）");
         const hint = availableModels.length
-          ? `利用できるモデルの例: ${availableModels.slice(0, 3).join(" / ")}`
+          ? `利用できるモデルの例: ${availableModels.slice(0, 8).join(" / ")}`
           : "";
         return response.status(502).json({
           message: hint ? `${MESSAGES.invalidModel} ${hint}` : MESSAGES.invalidModel,
