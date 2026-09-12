@@ -223,48 +223,96 @@ select:focus {
   white-space: nowrap;
 }
 
-/* 画像を読み取る方法（通常OCR / AI OCR）の選択です。 */
-.ocr-mode {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 20px;
+/* 処理方法（そのまま / 高精度OCR / 翻訳 / 要約）の選択です。 */
+.process-mode {
   margin: 14px 0 0;
-  padding: 8px 16px 12px;
+  padding: 8px 16px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #f8fafc;
 }
 
-.ocr-mode legend {
+.process-mode legend {
   padding: 0 6px;
   color: var(--muted);
   font-size: .82rem;
   font-weight: 700;
 }
 
-.ocr-mode-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
+/* 4つの違いが一目で分かるよう、1行ずつ・説明つきで並べます。 */
+.process-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
   cursor: pointer;
+  transition: background-color .15s;
+}
+
+/* 指で触れる画面では、押したあとに色が残らないようにします。 */
+@media (hover: hover) {
+  .process-option:hover {
+    background: #eef2f7;
+  }
+}
+
+/* 選んでいる項目は、背景と枠で分かるようにします。 */
+.process-option:has(input:checked) {
+  background: var(--primary-soft);
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.process-option input {
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+
+.process-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.process-option-title {
   font-size: .95rem;
   font-weight: 700;
 }
 
-.ocr-mode-option input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--primary);
+.process-option-note {
+  color: var(--muted);
+  font-size: .8rem;
+  line-height: 1.55;
 }
 
-.ocr-mode-hint {
-  flex: 1 0 100%;
-  margin: 0;
+.process-option:has(input:checked) .process-option-note {
+  color: var(--primary-dark);
+}
+
+.process-language {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 0 10px;
+}
+
+.process-language label {
   color: var(--muted);
   font-size: .82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.process-language select {
+  width: auto;
+  min-width: 130px;
+  height: 40px;
+  margin-top: 0;
 }
 
 /* 画像から文字を読み取っている間の進捗表示です。 */
@@ -293,72 +341,6 @@ select:focus {
   font-size: .86rem;
   font-weight: 700;
   text-align: center;
-}
-
-/* 読み上げモード（そのまま / 翻訳 / 要約）の選択です。 */
-.ai-mode {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 20px;
-  margin: 14px 0 0;
-  padding: 8px 16px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.ai-mode legend {
-  padding: 0 6px;
-  color: var(--muted);
-  font-size: .82rem;
-  font-weight: 700;
-}
-
-.ai-mode-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  cursor: pointer;
-  font-size: .95rem;
-  font-weight: 700;
-}
-
-.ai-mode-option input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--primary);
-}
-
-.ai-mode-language {
-  display: flex;
-  flex: 1 0 100%;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.ai-mode-language label {
-  color: var(--muted);
-  font-size: .82rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.ai-mode-language select {
-  width: auto;
-  min-width: 130px;
-  height: 40px;
-  margin-top: 0;
-}
-
-.ai-mode-hint {
-  flex: 1 0 100%;
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: .82rem;
 }
 
 .settings {
@@ -731,14 +713,6 @@ input[type="range"] {
     grid-template-columns: 1fr;
     gap: 18px;
     padding: 17px;
-  }
-
-  .ocr-mode-option {
-    flex: 1 0 100%;
-  }
-
-  .ai-mode-option {
-    flex: 1 0 100%;
   }
 
   .controls {

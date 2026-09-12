@@ -19,16 +19,13 @@ const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
-const ocrModeInputs = document.querySelectorAll('input[name="ocr-mode"]');
-const ocrModeHint = document.getElementById("ocr-mode-hint");
+const processModeInputs = document.querySelectorAll('input[name="process-mode"]');
 const aiResultSection = document.getElementById("ai-result");
 const aiResultInput = document.getElementById("ai-result-input");
 const aiResultKind = document.getElementById("ai-result-kind");
 const aiResultCount = document.getElementById("ai-result-count");
 const aiResultCopy = document.getElementById("ai-result-copy");
 const aiResultClear = document.getElementById("ai-result-clear");
-const aiModeInputs = document.querySelectorAll('input[name="ai-mode"]');
-const aiModeHint = document.getElementById("ai-mode-hint");
 const translateLanguageField = document.getElementById("translate-language-field");
 const translateLanguage = document.getElementById("translate-language");
 const passwordDialog = document.getElementById("password-dialog");
@@ -934,10 +931,10 @@ async function runOcr(file, speakAfterOcr = false) {
     return;
   }
 
-  const useAi = getOcrMode() === "ai";
+  const useAi = usesAiOcr();
 
   isOcrRunning = true;
-  setOcrModeEnabled(false);
+  setProcessModeEnabled(false);
   // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
   if (isReading) stopSpeaking();
   statusText.classList.remove("error");
@@ -981,7 +978,7 @@ async function runOcr(file, speakAfterOcr = false) {
     showOcrFailure(error, useAi);
   } finally {
     isOcrRunning = false;
-    setOcrModeEnabled(true);
+    setProcessModeEnabled(true);
     hideOcrProgress();
   }
 }
@@ -1006,63 +1003,8 @@ function showOcrFailure(error, useAi) {
   showAiOcrError("AI OCRを利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
 }
 
-// ===== 画像の読み取り方法（通常OCR / AIで高精度OCR）の選択 =====
-// 選んだ方法は、次に使うときのためにブラウザへ保存します。
-
-const OCR_MODE_STORAGE_KEY = "yomiage-ocr-mode";
-const OCR_MODE_HINTS = {
-  tesseract: "ブラウザの中だけで読み取ります。画像は外部へ送信しません。",
-  ai: "読み取るたびに画像を外部のAI（Gemini）へ送信します。ご利用に応じて料金がかかります。",
-};
-
-function getOcrMode() {
-  const selected = document.querySelector('input[name="ocr-mode"]:checked');
-  return selected?.value === "ai" ? "ai" : "tesseract";
-}
-
-// 読み取り中は、途中で方法を変えられないようにします。
-function setOcrModeEnabled(isEnabled) {
-  ocrModeInputs.forEach((input) => {
-    input.disabled = !isEnabled;
-  });
-}
-
-function updateOcrModeHint() {
-  ocrModeHint.textContent = OCR_MODE_HINTS[getOcrMode()];
-}
-
-// 保存できない設定のブラウザ（プライベート閲覧など）でも、そのまま使えるようにします。
-function saveOcrMode(mode) {
-  try {
-    localStorage.setItem(OCR_MODE_STORAGE_KEY, mode);
-  } catch (error) {
-    console.warn("読み取り方法を保存できませんでした。", error);
-  }
-}
-
-function restoreOcrMode() {
-  try {
-    const savedMode = localStorage.getItem(OCR_MODE_STORAGE_KEY);
-    const savedInput = savedMode && document.querySelector(`input[name="ocr-mode"][value="${savedMode}"]`);
-    if (savedInput) savedInput.checked = true;
-  } catch (error) {
-    console.warn("保存した読み取り方法を読み込めませんでした。", error);
-  }
-
-  updateOcrModeHint();
-}
-
-ocrModeInputs.forEach((input) => {
-  input.addEventListener("change", () => {
-    saveOcrMode(getOcrMode());
-    updateOcrModeHint();
-  });
-});
-
-restoreOcrMode();
-
-// ===== AI OCRのパスワード認証 =====
-// 料金が発生するAI OCRだけを守ります。読み上げと通常OCRは、これまでどおり認証なしで使えます。
+// ===== AIの機能のパスワード認証 =====
+// 料金が発生するAIの機能だけを守ります。読み上げと通常OCRは、これまでどおり認証なしで使えます。
 // パスワードはサーバー側（/api/login）だけで確かめ、ブラウザには保存しません。
 // 認証できると、書き換えられない引換券がHttpOnly Cookieで渡され、24時間ほど有効です。
 
@@ -1268,70 +1210,88 @@ async function recognizeWithGemini(file) {
   }
 }
 
-// ===== 読み上げモード（そのまま / AIで翻訳 / AIで要約） =====
-// 翻訳と要約はGeminiを使うため、AI OCRと同じパスワード認証が必要です。
-// 元の文章は残しておき、「元の文章に戻す」でいつでも戻せるようにします。
+// ===== 処理方法（そのまま / 高精度OCR / 翻訳 / 要約） =====
+// 画像の読み取り方と、読み上げる前のAI処理を、1つの選択で決めます。
+// 高精度OCR・翻訳・要約はGeminiを使うため、同じパスワード認証が必要です。
 
 const AI_TEXT_ENDPOINT = "/api/ai";
 const AI_TEXT_TIMEOUT_MS = 45000;
+const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
+const PROCESS_MODES = ["plain", "ai-ocr", "translate", "summarize"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
-const AI_MODE_HINTS = {
-  plain: "入力された文章をそのまま読み上げます。AIは使いません。",
-  translate: "読み上げる前に、AI（Gemini）で翻訳します。文章を外部のAIへ送信し、ご利用に応じて料金がかかります。",
-  summarize: "読み上げる前に、AI（Gemini）で日本語に要約します。文章を外部のAIへ送信し、ご利用に応じて料金がかかります。",
-};
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
 let aiResultSource = "";
 let aiResultMode = "";
 let aiResultLanguage = "";
 
-function getAiMode() {
-  const selected = document.querySelector('input[name="ai-mode"]:checked');
-  return selected ? selected.value : "plain";
+function getProcessMode() {
+  const selected = document.querySelector('input[name="process-mode"]:checked');
+  return selected && PROCESS_MODES.includes(selected.value) ? selected.value : "plain";
 }
 
-function setAiModeEnabled(isEnabled) {
-  aiModeInputs.forEach((input) => {
+// 画像をGeminiで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
+function usesAiOcr() {
+  return getProcessMode() === "ai-ocr";
+}
+
+// 読み上げる前に文章をAIで処理するかどうかを返します（しない場合は空文字）。
+function getTextAiMode() {
+  const mode = getProcessMode();
+  return mode === "translate" || mode === "summarize" ? mode : "";
+}
+
+// 処理中は、途中で方法を変えられないようにします。
+function setProcessModeEnabled(isEnabled) {
+  processModeInputs.forEach((input) => {
     input.disabled = !isEnabled;
   });
   translateLanguage.disabled = !isEnabled;
 }
 
-function updateAiModeHint() {
-  const mode = getAiMode();
-  aiModeHint.textContent = AI_MODE_HINTS[mode];
-  translateLanguageField.hidden = mode !== "translate";
+// 翻訳先の言語は「翻訳して読み上げ」を選んでいるときだけ表示します。
+function updateTranslateLanguageField() {
+  translateLanguageField.hidden = getProcessMode() !== "translate";
 }
 
-// 翻訳先の言語だけを保存します。読み上げモードは、開くたびに「そのまま読み上げ」へ戻します
-// （知らないうちにAIへ送信して料金がかかることを防ぐためです）。
-function restoreTranslateLanguage() {
+// 選んだ内容は、次に使うときのためにブラウザへ保存します。
+// 保存できない設定のブラウザ（プライベート閲覧など）でも、そのまま使えるようにします。
+function saveProcessSettings() {
   try {
+    localStorage.setItem(PROCESS_MODE_STORAGE_KEY, getProcessMode());
+    localStorage.setItem(TRANSLATE_LANGUAGE_STORAGE_KEY, translateLanguage.value);
+  } catch (error) {
+    console.warn("処理方法を保存できませんでした。", error);
+  }
+}
+
+function restoreProcessSettings() {
+  try {
+    const savedMode = localStorage.getItem(PROCESS_MODE_STORAGE_KEY);
+    const savedInput = savedMode && document.querySelector(`input[name="process-mode"][value="${savedMode}"]`);
+    if (savedInput) savedInput.checked = true;
+
     const savedLanguage = localStorage.getItem(TRANSLATE_LANGUAGE_STORAGE_KEY);
     if (savedLanguage && [...translateLanguage.options].some((option) => option.value === savedLanguage)) {
       translateLanguage.value = savedLanguage;
     }
   } catch (error) {
-    console.warn("翻訳先の言語を読み込めませんでした。", error);
+    console.warn("保存した処理方法を読み込めませんでした。", error);
   }
 
-  updateAiModeHint();
+  updateTranslateLanguageField();
 }
 
-aiModeInputs.forEach((input) => {
-  input.addEventListener("change", updateAiModeHint);
+processModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    updateTranslateLanguageField();
+    saveProcessSettings();
+  });
 });
 
-translateLanguage.addEventListener("change", () => {
-  try {
-    localStorage.setItem(TRANSLATE_LANGUAGE_STORAGE_KEY, translateLanguage.value);
-  } catch (error) {
-    console.warn("翻訳先の言語を保存できませんでした。", error);
-  }
-});
+translateLanguage.addEventListener("change", saveProcessSettings);
 
-restoreTranslateLanguage();
+restoreProcessSettings();
 
 // AIの結果を別の欄に入れることで、元の文章は入力欄にそのまま残します。
 function updateAiResultCount() {
@@ -1414,7 +1374,7 @@ async function requestAiText(mode, text) {
 async function applyAiMode(mode) {
   const sourceText = textInput.value;
 
-  setAiModeEnabled(false);
+  setProcessModeEnabled(false);
   if (isReading) stopSpeaking();
   statusText.classList.remove("error");
   statusText.textContent = mode === "translate" ? "AIで翻訳しています…" : "AIで要約しています…";
@@ -1441,7 +1401,7 @@ async function applyAiMode(mode) {
     else showAiOcrError("AIの機能を利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
     return false;
   } finally {
-    setAiModeEnabled(true);
+    setProcessModeEnabled(true);
   }
 }
 
@@ -1455,8 +1415,8 @@ function hasFreshAiResult(mode) {
 
 // 画像を読み取ったあと、読み上げモードを選んでいれば、続けてAIの処理まで進めます。
 async function applyAiModeAfterOcr() {
-  const mode = getAiMode();
-  if (mode === "plain") return "skipped";
+  const mode = getTextAiMode();
+  if (!mode) return "skipped";
   return (await applyAiMode(mode)) ? "done" : "failed";
 }
 
@@ -1465,10 +1425,10 @@ async function applyAiModeAfterOcr() {
  * 翻訳・要約を選んでいるときは、先にAIで処理してから読み上げます。
  */
 async function startReading() {
-  const mode = getAiMode();
+  const mode = getTextAiMode();
 
   // 文章がないときや、すでに同じ条件でAIが処理しているときは、そのまま読み上げます。
-  if (mode === "plain" || !textInput.value.trim() || hasFreshAiResult(mode)) {
+  if (!mode || !textInput.value.trim() || hasFreshAiResult(mode)) {
     startSpeaking();
     return;
   }

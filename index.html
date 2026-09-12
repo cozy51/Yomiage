@@ -60,34 +60,42 @@
         <p id="ai-result-help" class="input-help">読み上げるのは、こちらの文章です。「消す」を押すと、上の文章を読み上げます。</p>
       </section>
 
-      <fieldset class="ocr-mode">
-        <legend>画像の読み取り方法</legend>
-        <label class="ocr-mode-option">
-          <input type="radio" name="ocr-mode" value="tesseract" checked>
-          <span>通常OCR（無料）</span>
-        </label>
-        <label class="ocr-mode-option">
-          <input type="radio" name="ocr-mode" value="ai">
-          <span>✨ AIで高精度OCR</span>
-        </label>
-        <p id="ocr-mode-hint" class="ocr-mode-hint" aria-live="polite">ブラウザの中だけで読み取ります。画像は外部へ送信しません。</p>
-      </fieldset>
+      <fieldset class="process-mode">
+        <legend>処理方法</legend>
 
-      <fieldset class="ai-mode">
-        <legend>読み上げモード</legend>
-        <label class="ai-mode-option">
-          <input type="radio" name="ai-mode" value="plain" checked>
-          <span>そのまま読み上げ</span>
+        <label class="process-option">
+          <input type="radio" name="process-mode" value="plain" checked>
+          <span class="process-option-body">
+            <span class="process-option-title">そのまま読み上げ</span>
+            <span class="process-option-note">画像の場合は無料OCRで文字を読み取ります。AIは使いません。</span>
+          </span>
         </label>
-        <label class="ai-mode-option">
-          <input type="radio" name="ai-mode" value="translate">
-          <span>🌐 AIで翻訳して読み上げ</span>
+
+        <label class="process-option">
+          <input type="radio" name="process-mode" value="ai-ocr">
+          <span class="process-option-body">
+            <span class="process-option-title">✨ 高精度OCRで読み上げ</span>
+            <span class="process-option-note">画像をGeminiで高精度に読み取って、そのまま読み上げます。</span>
+          </span>
         </label>
-        <label class="ai-mode-option">
-          <input type="radio" name="ai-mode" value="summarize">
-          <span>✨ AIで要約して読み上げ</span>
+
+        <label class="process-option">
+          <input type="radio" name="process-mode" value="translate">
+          <span class="process-option-body">
+            <span class="process-option-title">🌐 翻訳して読み上げ</span>
+            <span class="process-option-note">文章をAIで翻訳して読み上げます。</span>
+          </span>
         </label>
-        <div id="translate-language-field" class="ai-mode-language" hidden>
+
+        <label class="process-option">
+          <input type="radio" name="process-mode" value="summarize">
+          <span class="process-option-body">
+            <span class="process-option-title">✨ 要約して読み上げ</span>
+            <span class="process-option-note">文章をAIで短くまとめて読み上げます。</span>
+          </span>
+        </label>
+
+        <div id="translate-language-field" class="process-language" hidden>
           <label for="translate-language">翻訳先の言語</label>
           <select id="translate-language">
             <option value="ja">日本語</option>
@@ -96,7 +104,6 @@
             <option value="ko">韓国語</option>
           </select>
         </div>
-        <p id="ai-mode-hint" class="ai-mode-hint" aria-live="polite">入力された文章をそのまま読み上げます。AIは使いません。</p>
       </fieldset>
 
       <div class="settings" aria-label="読み上げ設定">
