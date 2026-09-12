@@ -47,17 +47,37 @@ Webサイトやアプリのスクリーンショットの場合でも、本文�
 ボタン名やナビゲーションなども、文章として必要な場合のみ抽出してください。`;
 
 // 利用者へ返す案内です。APIキーや内部の詳しい情報は、ここへ含めません。
+// codeは、うまくいかないときにどこで止まったかを見分けるための短い印です（秘密の情報は含みません）。
 const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
   invalidRequest: "画像を受け取れませんでした。もう一度コピーしてからお試しください。",
   unsupportedType: "この画像の形式には対応していません。PNGまたはJPEGの画像でお試しください。",
   tooLarge: "画像が大きすぎます。",
   unavailable: "AI OCRを利用できません。しばらくしてから再度お試しください。",
+  invalidKey: "AI OCRを利用できません。APIキーの設定を確認してください。",
+  invalidModel: "AI OCRのモデルを利用できません。モデル名の設定を確認してください。",
   busy: "AI OCRの利用が混み合っています。しばらくしてから再度お試しください。",
   timeout: "AI OCRが時間内に終わりませんでした。通常OCRをお試しください。",
   failed: "AI OCRに失敗しました。通常OCRをお試しください。",
   empty: "AIが文字を読み取れませんでした。通常OCRをお試しください。",
 };
+
+// Gemini側の説明をログへ残すために読み取ります。読み取れない場合は空にします。
+async function readErrorBody(geminiResponse) {
+  try {
+    return (await geminiResponse.text()).slice(0, 500);
+  } catch (error) {
+    return "";
+  }
+}
+
+// Gemini側のエラーを、利用者への案内へ振り分けます。
+function describeGeminiError(status) {
+  if (status === 400 || status === 401 || status === 403) return MESSAGES.invalidKey;
+  if (status === 404) return MESSAGES.invalidModel;
+  if (status === 429) return MESSAGES.busy;
+  return MESSAGES.failed;
+}
 
 function parseRequestBody(body) {
   if (!body) return null;
@@ -88,14 +108,14 @@ module.exports = async function handler(request, response) {
   // 乱用を防ぐため、POST以外は受け付けません。
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
-    return response.status(405).json({ message: MESSAGES.methodNotAllowed });
+    return response.status(405).json({ message: MESSAGES.methodNotAllowed, code: "AI-405" });
   }
 
   // APIキーが未設定でも、アプリ全体は動き続けます（通常OCRはブラウザの中だけで動きます）。
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("GEMINI_API_KEYが設定されていません。Vercelの環境変数を確認してください。");
-    return response.status(503).json({ message: MESSAGES.unavailable });
+    return response.status(503).json({ message: MESSAGES.unavailable, code: "AI-NOKEY" });
   }
 
   const body = parseRequestBody(request.body);
@@ -103,15 +123,15 @@ module.exports = async function handler(request, response) {
   const mimeType = typeof body?.mimeType === "string" ? body.mimeType.toLowerCase() : "";
 
   if (!image || !BASE64_PATTERN.test(image)) {
-    return response.status(400).json({ message: MESSAGES.invalidRequest });
+    return response.status(400).json({ message: MESSAGES.invalidRequest, code: "AI-BADREQ" });
   }
 
   if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
-    return response.status(415).json({ message: MESSAGES.unsupportedType });
+    return response.status(415).json({ message: MESSAGES.unsupportedType, code: "AI-TYPE" });
   }
 
   if (estimateImageBytes(image) > MAX_IMAGE_BYTES) {
-    return response.status(413).json({ message: MESSAGES.tooLarge });
+    return response.status(413).json({ message: MESSAGES.tooLarge, code: "AI-SIZE" });
   }
 
   try {
@@ -136,9 +156,12 @@ module.exports = async function handler(request, response) {
     });
 
     if (!geminiResponse.ok) {
-      console.error("Gemini APIがエラーを返しました。", geminiResponse.status);
-      const message = geminiResponse.status === 429 ? MESSAGES.busy : MESSAGES.failed;
-      return response.status(502).json({ message });
+      // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
+      console.error("Gemini APIがエラーを返しました。", geminiResponse.status, await readErrorBody(geminiResponse));
+      return response.status(502).json({
+        message: describeGeminiError(geminiResponse.status),
+        code: `AI-G${geminiResponse.status}`,
+      });
     }
 
     const result = await geminiResponse.json();
@@ -146,7 +169,8 @@ module.exports = async function handler(request, response) {
     const text = removeCodeFence(parts.map((part) => part?.text || "").join(""));
 
     if (!text) {
-      return response.status(502).json({ message: MESSAGES.empty });
+      console.error("Geminiが文章を返しませんでした。", JSON.stringify(result?.candidates?.[0]?.finishReason || result?.promptFeedback || {}));
+      return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
     }
 
     // 読み取った文章だけを返します。利用状況などの余分な情報は返しません。
@@ -154,8 +178,9 @@ module.exports = async function handler(request, response) {
   } catch (error) {
     const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError";
     console.error("Gemini APIの呼び出しに失敗しました。", error?.name || error);
-    return response
-      .status(isTimeout ? 504 : 502)
-      .json({ message: isTimeout ? MESSAGES.timeout : MESSAGES.failed });
+    return response.status(isTimeout ? 504 : 502).json({
+      message: isTimeout ? MESSAGES.timeout : MESSAGES.failed,
+      code: isTimeout ? "AI-TIMEOUT" : "AI-NET",
+    });
   }
 };

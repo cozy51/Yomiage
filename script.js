@@ -967,6 +967,11 @@ function setAiOcrImage(file) {
   aiOcrButton.disabled = !file;
 }
 
+// うまくいかないときにどこで止まったかを見分けられるよう、短い印を添えて表示します。
+function showAiOcrError(message, code) {
+  showError(code ? `${message}（${code}）` : message);
+}
+
 function setAiOcrBusy(isBusy) {
   aiOcrButton.disabled = isBusy || !aiOcrImage;
   aiOcrButton.setAttribute("aria-busy", String(isBusy));
@@ -1042,8 +1047,23 @@ async function runAiOcr() {
 
     const result = await response.json().catch(() => null);
 
-    if (!response.ok || !result?.text) {
-      showError(result?.message || "AI OCRに失敗しました。通常OCRをお試しください。");
+    if (!result) {
+      // Vercel側の処理が見つからない・落ちている場合は、JSONではない応答が返ります。
+      const notFound = response.status === 404;
+      const tooLarge = response.status === 413;
+      showAiOcrError(
+        notFound
+          ? "AI OCRの機能が見つかりません。デプロイが終わっているか確認してください。"
+          : tooLarge
+            ? "画像が大きすぎます。少し小さい画像でお試しください。"
+            : "AI OCRの応答を読み取れませんでした。しばらくしてから再度お試しください。",
+        `AI-HTTP${response.status}`,
+      );
+      return;
+    }
+
+    if (!response.ok || !result.text) {
+      showAiOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
       return;
     }
 
@@ -1060,11 +1080,11 @@ async function runAiOcr() {
   } catch (error) {
     console.warn("AI OCRに失敗しました。", error);
     if (error?.name === "AbortError") {
-      showError("AI OCRが時間内に終わりませんでした。通常OCRをお試しください。");
+      showAiOcrError("AI OCRが時間内に終わりませんでした。通常OCRをお試しください。", "AI-TIMEOUT-B");
     } else if (error?.message === "画像が大きすぎます。") {
-      showError("画像が大きすぎます。");
+      showAiOcrError("画像が大きすぎます。", "AI-SIZE-B");
     } else {
-      showError("AI OCRを利用できません。しばらくしてから再度お試しください。");
+      showAiOcrError("AI OCRを利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
     }
   } finally {
     window.clearTimeout(timeoutId);
