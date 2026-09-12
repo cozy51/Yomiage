@@ -133,6 +133,55 @@ select:focus {
   margin: 6px 0 0;
 }
 
+/* 画像OCR（画像から文字を読み取る）の入力欄です。 */
+.ocr {
+  margin-top: 18px;
+  padding: 16px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  background: #fbfdff;
+  text-align: center;
+  transition: border-color .15s, background-color .15s;
+}
+
+/* 画像をページ上へドラッグしている間は、受け取れることを枠の色で示します。 */
+.ocr.is-dragover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.ocr-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: .86rem;
+}
+
+.ocr-progress {
+  margin-top: 14px;
+}
+
+.ocr-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.ocr-progress-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width .2s;
+}
+
+.ocr-progress-label {
+  margin: 8px 0 0;
+  color: var(--primary-dark);
+  font-size: .86rem;
+  font-weight: 700;
+}
+
 .settings {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(240px, 1fr);
@@ -436,6 +485,14 @@ input[type="range"] {
     grid-template-columns: 1fr;
     gap: 18px;
     padding: 17px;
+  }
+
+  .ocr {
+    padding: 14px;
+  }
+
+  #ocr-button {
+    width: 100%;
   }
 
   .controls {
