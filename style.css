@@ -103,7 +103,7 @@ h1 {
 textarea {
   display: block;
   width: 100%;
-  min-height: 280px;
+  min-height: 140px;
   margin-top: 10px;
   padding: 18px;
   resize: vertical;
@@ -462,7 +462,7 @@ input[type="range"] {
   }
 
   textarea {
-    min-height: 240px;
+    min-height: 120px;
   }
 
   .settings {
