@@ -38,12 +38,18 @@
       ></textarea>
       <p id="input-help" class="input-help">入力欄へ文章を貼り付けると、以前の文章を消してすぐに読み上げます。画像を貼り付けた場合は、文字を読み取って入力します。</p>
 
-      <div class="ai-ocr">
-        <button id="ai-ocr-button" class="button button-ai" type="button" disabled>
-          <span aria-hidden="true">✨</span> AIで高精度OCR
-        </button>
-        <p class="ai-ocr-hint">画像を貼り付けると押せます。通常OCR（無料）でうまく読み取れないときに使い、押したときだけ画像を外部のAIへ送信します。</p>
-      </div>
+      <fieldset class="ocr-mode">
+        <legend>画像の読み取り方法</legend>
+        <label class="ocr-mode-option">
+          <input type="radio" name="ocr-mode" value="tesseract" checked>
+          <span>通常OCR（無料）</span>
+        </label>
+        <label class="ocr-mode-option">
+          <input type="radio" name="ocr-mode" value="ai">
+          <span>✨ AIで高精度OCR</span>
+        </label>
+        <p id="ocr-mode-hint" class="ocr-mode-hint" aria-live="polite">ブラウザの中だけで読み取ります。画像は外部へ送信しません。</p>
+      </fieldset>
 
       <div class="settings" aria-label="読み上げ設定">
         <div class="setting-field voice-field">
