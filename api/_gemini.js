@@ -69,23 +69,51 @@ function removeCodeFence(text) {
 }
 
 /**
- * Geminiへ問い合わせて、返ってきた文章を取り出します。
- * うまくいかなかったときは、呼び出し側が案内を選べるよう、状態コードを持たせて投げ直します。
+ * Geminiへ1回問い合わせます。返事の中身は呼び出し側で確かめます。
  */
-async function generateText(apiKey, parts, options = {}) {
-  const model = getGeminiModel();
-  const geminiResponse = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
+async function requestGemini(apiKey, model, payload, timeoutMs) {
+  return fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-goog-api-key": apiKey,
     },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: { temperature: 0, maxOutputTokens: options.maxOutputTokens || 8192 },
-    }),
-    signal: AbortSignal.timeout(options.timeoutMs || GEMINI_TIMEOUT_MS),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+/**
+ * Geminiへ問い合わせて、返ってきた文章を取り出します。
+ * 守ってほしいルール（options.systemInstruction）は、本文とは別の「指示」として渡します。
+ * 本文の中に混ぜるより、指示として扱われやすくなるためです。
+ * うまくいかなかったときは、呼び出し側が案内を選べるよう、状態コードを持たせて投げ直します。
+ */
+async function generateText(apiKey, parts, options = {}) {
+  const model = getGeminiModel();
+  const timeoutMs = options.timeoutMs || GEMINI_TIMEOUT_MS;
+  const payload = {
+    contents: [{ parts }],
+    generationConfig: {
+      temperature: typeof options.temperature === "number" ? options.temperature : 0,
+      maxOutputTokens: options.maxOutputTokens || 8192,
+    },
+  };
+
+  if (options.systemInstruction) {
+    payload.system_instruction = { parts: [{ text: options.systemInstruction }] };
+  }
+
+  let geminiResponse = await requestGemini(apiKey, model, payload, timeoutMs);
+
+  // 「指示」の渡し方に対応していないモデルのときは、指示を本文の先頭へ入れてもう一度試します。
+  if (geminiResponse.status === 400 && payload.system_instruction) {
+    console.error("system_instructionを受け付けなかったため、指示を本文へ入れて試し直します。", await readErrorBody(geminiResponse));
+    geminiResponse = await requestGemini(apiKey, model, {
+      contents: [{ parts: [{ text: options.systemInstruction }, ...parts] }],
+      generationConfig: payload.generationConfig,
+    }, timeoutMs);
+  }
 
   if (!geminiResponse.ok) {
     // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
@@ -98,7 +126,11 @@ async function generateText(apiKey, parts, options = {}) {
 
   const result = await geminiResponse.json();
   const responseParts = result?.candidates?.[0]?.content?.parts || [];
-  const text = removeCodeFence(responseParts.map((part) => part?.text || "").join(""));
+  // 考えている途中の文（thought）は読み上げに不要なため、返事の本文だけを取り出します。
+  const text = removeCodeFence(responseParts
+    .filter((part) => !part?.thought)
+    .map((part) => part?.text || "")
+    .join(""));
 
   if (!text) {
     console.error("Geminiが文章を返しませんでした。", JSON.stringify(result?.candidates?.[0]?.finishReason || result?.promptFeedback || {}));

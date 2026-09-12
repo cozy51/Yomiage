@@ -223,6 +223,12 @@ select:focus {
   white-space: nowrap;
 }
 
+/* AIが原文をそのまま返したときは、色を変えて気づけるようにします。 */
+.ai-result-kind-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* 処理方法（そのまま / 高精度OCR / 翻訳 / 要約）の選択です。 */
 .process-mode {
   margin: 14px 0 0;
