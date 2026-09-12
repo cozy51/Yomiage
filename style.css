@@ -168,6 +168,35 @@ select:focus {
   margin: 6px 0 0;
 }
 
+/* 「AIで高精度OCR」は、画像を読み取れる状態のときだけ表示します。 */
+.ai-ocr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 14px;
+}
+
+.ai-ocr-hint {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+/* 通常OCRと区別できるよう、既存の配色に近い紫系にしています。 */
+.button-ai {
+  min-height: 44px;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: .95rem;
+}
+
+.button-ai:hover:not(:disabled) {
+  background: #e0e7ff;
+}
+
 /* 画像から文字を読み取っている間の進捗表示です。 */
 .ocr-progress {
   margin-top: 20px;
@@ -504,6 +533,10 @@ input[type="range"] {
     grid-template-columns: 1fr;
     gap: 18px;
     padding: 17px;
+  }
+
+  .ai-ocr .button {
+    width: 100%;
   }
 
   .controls {

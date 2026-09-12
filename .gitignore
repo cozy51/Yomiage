@@ -1,0 +1,10 @@
+# APIキーなどの秘密情報は、絶対にGitHubへコミットしません。
+.env
+.env.local
+.env.*
+
+# ローカルでVercel CLIを使ったときに作られるフォルダーです。
+.vercel
+
+node_modules
+.DS_Store
