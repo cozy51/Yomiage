@@ -19,6 +19,8 @@ const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
+const aiOcrSection = document.getElementById("ai-ocr");
+const aiOcrButton = document.getElementById("ai-ocr-button");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
@@ -575,6 +577,7 @@ function clearBeforeClipboardReading() {
   stopSpeaking();
   textInput.value = "";
   updateCharacterCount();
+  setAiOcrImage(null);
 }
 
 /**
@@ -899,6 +902,9 @@ async function runOcr(file, speakAfterOcr = false) {
     return;
   }
 
+  // 通常OCRが失敗した場合でもAI OCRを試せるよう、先に画像を覚えておきます。
+  setAiOcrImage(file);
+
   isOcrRunning = true;
   // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
   if (isReading) stopSpeaking();
@@ -935,6 +941,139 @@ async function runOcr(file, speakAfterOcr = false) {
     hideOcrProgress();
   }
 }
+
+// ===== AIで高精度OCR（Gemini API） =====
+// Gemini APIのキーをブラウザへ置くと誰にでも読み取られてしまうため、
+// ブラウザからは直接呼ばず、Vercel側の /api/ocr を経由して呼び出します。
+// 料金がかかるため、このボタンを押したときだけAPIを呼び出します（貼り付けただけでは呼びません）。
+
+const AI_OCR_ENDPOINT = "/api/ocr";
+const AI_OCR_TIMEOUT_MS = 35000;
+// Vercelへ送れる大きさには上限があるため、余裕をみた上限を決めています。
+const AI_OCR_MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+const AI_OCR_MAX_IMAGE_SIDE = 2000;
+const AI_OCR_SUPPORTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
+// 文字がつぶれないよう、画質は高いほうから順に試します。
+const AI_OCR_JPEG_QUALITIES = [0.92, 0.8, 0.7];
+const AI_OCR_BUTTON_LABEL = '<span aria-hidden="true">✨</span> AIで高精度OCR';
+const AI_OCR_RUNNING_LABEL = '<span aria-hidden="true">⏳</span> AIで読み取り中…';
+
+let aiOcrImage = null;
+let isAiOcrRunning = false;
+
+// 読み取った画像を覚えておき、同じ画像をAI OCRでも使えるようにします。
+function setAiOcrImage(file) {
+  aiOcrImage = file;
+  aiOcrSection.hidden = !file;
+}
+
+function setAiOcrBusy(isBusy) {
+  aiOcrButton.disabled = isBusy;
+  aiOcrButton.setAttribute("aria-busy", String(isBusy));
+  aiOcrButton.innerHTML = isBusy ? AI_OCR_RUNNING_LABEL : AI_OCR_BUTTON_LABEL;
+}
+
+function readImageAsBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("画像を読み込めませんでした。"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 大きすぎる画像や対応していない形式の画像を、送れる大きさのJPEGへ変換します。
+ * 文字を読み取るための画像なので、縮めすぎないように長辺の上限だけを決めています。
+ */
+async function shrinkImageForAiOcr(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, AI_OCR_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+
+  for (const quality of AI_OCR_JPEG_QUALITIES) {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (blob && blob.size <= AI_OCR_MAX_UPLOAD_BYTES) return blob;
+  }
+
+  throw new Error("画像が大きすぎます。");
+}
+
+// そのまま送れる画像はそのまま、送れない画像だけ縮小して、Base64にして返します。
+async function prepareImageForAiOcr(file) {
+  const canSendAsIs = AI_OCR_SUPPORTED_TYPES.includes(file.type) && file.size <= AI_OCR_MAX_UPLOAD_BYTES;
+  const image = canSendAsIs ? file : await shrinkImageForAiOcr(file);
+
+  return {
+    mimeType: canSendAsIs ? file.type : "image/jpeg",
+    image: await readImageAsBase64(image),
+  };
+}
+
+/**
+ * 覚えている画像をVercel側のAPIへ送り、AIが読み取った文章を入力欄へ入れます。
+ * 読み上げは自動で始めず、これまでどおり「読み上げ」を押して再生します。
+ */
+async function runAiOcr() {
+  // 連打しても複数回送らないよう、処理中は受け付けません。
+  if (isAiOcrRunning || isOcrRunning || !aiOcrImage) return;
+
+  isAiOcrRunning = true;
+  setAiOcrBusy(true);
+  if (isReading) stopSpeaking();
+  statusText.classList.remove("error");
+  statusText.textContent = "AIで文字を読み取っています…";
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), AI_OCR_TIMEOUT_MS);
+
+  try {
+    const payload = await prepareImageForAiOcr(aiOcrImage);
+    const response = await fetch(AI_OCR_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.text) {
+      showError(result?.message || "AI OCRに失敗しました。通常OCRをお試しください。");
+      return;
+    }
+
+    const recognizedText = cleanOcrText(result.text);
+    if (!recognizedText) {
+      showError("AIが文字を読み取れませんでした。通常OCRをお試しください。");
+      return;
+    }
+
+    textInput.value = recognizedText;
+    updateCharacterCount();
+    statusText.textContent = "AIで読み取りました。内容を確認して読み上げてください。";
+    if (!isMobileBrowser) textInput.focus();
+  } catch (error) {
+    console.warn("AI OCRに失敗しました。", error);
+    if (error?.name === "AbortError") {
+      showError("AI OCRが時間内に終わりませんでした。通常OCRをお試しください。");
+    } else if (error?.message === "画像が大きすぎます。") {
+      showError("画像が大きすぎます。");
+    } else {
+      showError("AI OCRを利用できません。しばらくしてから再度お試しください。");
+    }
+  } finally {
+    window.clearTimeout(timeoutId);
+    isAiOcrRunning = false;
+    setAiOcrBusy(false);
+  }
+}
+
+aiOcrButton.addEventListener("click", runAiOcr);
 
 /**
  * クリップボードの画像をCtrl+Vで読み取ります。
