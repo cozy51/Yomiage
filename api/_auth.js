@@ -89,6 +89,65 @@ function buildSessionCookie() {
 }
 
 /**
+ * パスワードを続けて間違えたときに、しばらく受け付けないようにします。
+ * 3回続けて間違えると一定時間ロックし、そのあとも間違えるほど待ち時間が長くなります。
+ * 正しいパスワードが入力できれば、数えていた回数は消えます。
+ */
+const LOGIN_FAILURE_LIMIT = 3;
+const LOGIN_LOCKOUT_MS = 30 * 60 * 1000;
+const LOGIN_LOCKOUT_MAX_ROUNDS = 6;
+
+const loginFailures = new Map();
+
+function readFailureRecord(key) {
+  const record = loginFailures.get(key);
+  if (!record) return null;
+
+  // ロックの時間が過ぎたら、また3回まで試せるようにします（次に間違えたときの待ち時間は長くなります）。
+  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
+    record.failures = 0;
+    record.lockedUntil = 0;
+  }
+
+  return record;
+}
+
+// あとどれくらいロックされているかを返します。0ならロックされていません。
+function getLoginLockoutMs(key) {
+  const record = readFailureRecord(key);
+  if (!record?.lockedUntil) return 0;
+  return Math.max(0, record.lockedUntil - Date.now());
+}
+
+function recordLoginFailure(key) {
+  const record = readFailureRecord(key) || { failures: 0, lockedUntil: 0, rounds: 0 };
+  record.failures += 1;
+
+  if (record.failures >= LOGIN_FAILURE_LIMIT) {
+    record.rounds = Math.min(record.rounds + 1, LOGIN_LOCKOUT_MAX_ROUNDS);
+    record.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS * record.rounds;
+  }
+
+  // 記録がたまりすぎないよう、ロックされていない古いものを片付けます。
+  if (loginFailures.size > 500) {
+    for (const [failureKey, failureRecord] of loginFailures) {
+      if (!failureRecord.lockedUntil) loginFailures.delete(failureKey);
+    }
+  }
+
+  loginFailures.set(key, record);
+
+  return {
+    remainingAttempts: Math.max(0, LOGIN_FAILURE_LIMIT - record.failures),
+    lockoutMs: record.lockedUntil ? Math.max(0, record.lockedUntil - Date.now()) : 0,
+  };
+}
+
+function clearLoginFailures(key) {
+  loginFailures.delete(key);
+}
+
+/**
  * 同じ利用者からの短時間の呼び出しすぎを防ぎます。
  * 少人数での利用を想定しているため、記録はこの関数の実行環境の中だけに持ちます。
  */
@@ -124,10 +183,14 @@ function getClientKey(request) {
 module.exports = {
   COOKIE_NAME,
   SESSION_DURATION_MS,
+  LOGIN_FAILURE_LIMIT,
   isAuthConfigured,
   verifyPassword,
   isAuthenticated,
   buildSessionCookie,
   checkRateLimit,
   getClientKey,
+  getLoginLockoutMs,
+  recordLoginFailure,
+  clearLoginFailures,
 };
