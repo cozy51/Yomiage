@@ -111,7 +111,7 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 
 ### 使用するモデルの変更
 
-使用するGeminiのモデル名は `api/ocr.js` の先頭にある `DEFAULT_GEMINI_MODEL` の1か所だけで管理しています。初期値は `gemini-2.5-flash-lite` です。別のモデルへ変更するときは、この値だけを書き換えてください。
+使用するGeminiのモデル名は `api/ocr.js` の先頭にある `DEFAULT_GEMINI_MODEL` の1か所だけで管理しています。初期値は `gemini-2.5-flash` です。別のモデルへ変更するときは、この値だけを書き換えてください。
 
 Vercelの環境変数に `GEMINI_MODEL` を設定した場合は、そちらが優先されます。コードを変えずに別のモデルを試したいときに使えます（`Settings` → `Environment Variables` で `GEMINI_MODEL` を追加し、再デプロイしてください）。値が空のときや使えない形のときは、`DEFAULT_GEMINI_MODEL` に戻ります。
 
