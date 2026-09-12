@@ -100,6 +100,41 @@ h1 {
   font-size: .86rem;
 }
 
+/* 入力欄の文章をまるごとコピーするボタンです。 */
+.input-heading-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.copy-button {
+  min-height: 32px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.copy-button:hover {
+  border-color: #93c5fd;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+/* コピーできたことが一目で分かるよう、少しの間だけ色を変えます。 */
+.copy-button.is-copied {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
 textarea {
   display: block;
   width: 100%;

@@ -8,6 +8,7 @@ const rateInput = document.getElementById("rate-input");
 const rateOutput = document.getElementById("rate-output");
 const speakButton = document.getElementById("speak-button");
 const clipboardButton = document.getElementById("clipboard-button");
+const copyButton = document.getElementById("copy-button");
 const pauseButton = document.getElementById("pause-button");
 const stopButton = document.getElementById("stop-button");
 const statusText = document.getElementById("status");
@@ -626,6 +627,66 @@ function sanitizePastedText(text) {
     .join("\n");
 }
 
+// コピーできたことを知らせる表示は、少しの間だけ出して元へ戻します。
+const COPY_NOTICE_DURATION = 2500;
+const COPY_BUTTON_LABEL = '<span aria-hidden="true">📄</span> コピー';
+const COPIED_BUTTON_LABEL = '<span aria-hidden="true">✓</span> コピーしました';
+
+let copyNoticeTimerId = 0;
+
+/**
+ * コピーの結果を案内表示とボタンの見た目で知らせ、少しあとに元の表示へ戻します。
+ */
+function showCopyResult(message, isCopied) {
+  window.clearTimeout(copyNoticeTimerId);
+
+  if (isCopied) {
+    statusText.classList.remove("error");
+    statusText.textContent = message;
+    copyButton.innerHTML = COPIED_BUTTON_LABEL;
+    copyButton.classList.add("is-copied");
+  } else {
+    showError(message);
+  }
+
+  copyNoticeTimerId = window.setTimeout(() => {
+    copyButton.innerHTML = COPY_BUTTON_LABEL;
+    copyButton.classList.remove("is-copied");
+    if (isReading) updateControls(isPaused ? "paused" : "speaking");
+    else updateControls("idle");
+  }, COPY_NOTICE_DURATION);
+}
+
+/**
+ * 入力欄の文章をすべてクリップボードへコピーします。
+ * 要約など、読み上げ以外の用途へ文章をそのまま渡せるようにするためのものです。
+ * Clipboard APIが使えない環境では、入力欄を選択する昔ながらの方法でコピーします。
+ */
+async function copyTextToClipboard() {
+  const text = textInput.value;
+
+  if (!text.trim()) {
+    showCopyResult("コピーする文章がありません。", false);
+    return;
+  }
+
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+    } else {
+      textInput.select();
+      const copied = document.execCommand("copy");
+      textInput.setSelectionRange(text.length, text.length);
+      if (!copied) throw new Error("execCommandでコピーできませんでした。");
+    }
+
+    showCopyResult(`${Array.from(text).length.toLocaleString("ja-JP")}文字をコピーしました。`, true);
+  } catch (error) {
+    console.warn("コピーに失敗しました。", error);
+    showCopyResult("コピーできませんでした。入力欄を選択してCtrl+Cでコピーしてください。", false);
+  }
+}
+
 /**
  * クリップボードの文章を入力欄へ取り込み、すぐに読み上げます。
  * Clipboard APIはブラウザの仕様によりHTTPSまたはlocalhostが必要な場合があります。
@@ -925,6 +986,7 @@ rateInput.addEventListener("input", () => {
 
 speakButton.addEventListener("click", startSpeaking);
 clipboardButton.addEventListener("click", readFromClipboard);
+copyButton.addEventListener("click", copyTextToClipboard);
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
 
