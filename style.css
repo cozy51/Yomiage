@@ -168,33 +168,48 @@ select:focus {
   margin: 6px 0 0;
 }
 
-/* 「AIで高精度OCR」は、画像を読み取れる状態のときだけ表示します。 */
-.ai-ocr {
+/* 画像を読み取る方法（通常OCR / AI OCR）の選択です。 */
+.ocr-mode {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
-  margin-top: 14px;
+  gap: 0 20px;
+  margin: 14px 0 0;
+  padding: 8px 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
-.ai-ocr-hint {
-  flex: 1 1 240px;
+.ocr-mode legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.ocr-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+  font-size: .95rem;
+  font-weight: 700;
+}
+
+.ocr-mode-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.ocr-mode-hint {
+  flex: 1 0 100%;
   margin: 0;
   color: var(--muted);
   font-size: .82rem;
-}
-
-/* 通常OCRと区別できるよう、既存の配色に近い紫系にしています。 */
-.button-ai {
-  min-height: 44px;
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: .95rem;
-}
-
-.button-ai:hover:not(:disabled) {
-  background: #e0e7ff;
 }
 
 /* 画像から文字を読み取っている間の進捗表示です。 */
@@ -535,8 +550,8 @@ input[type="range"] {
     padding: 17px;
   }
 
-  .ai-ocr .button {
-    width: 100%;
+  .ocr-mode-option {
+    flex: 1 0 100%;
   }
 
   .controls {

@@ -19,7 +19,8 @@ const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
-const aiOcrButton = document.getElementById("ai-ocr-button");
+const ocrModeInputs = document.querySelectorAll('input[name="ocr-mode"]');
+const ocrModeHint = document.getElementById("ocr-mode-hint");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
@@ -576,7 +577,6 @@ function clearBeforeClipboardReading() {
   stopSpeaking();
   textInput.value = "";
   updateCharacterCount();
-  setAiOcrImage(null);
 }
 
 /**
@@ -888,12 +888,22 @@ function cleanOcrText(text) {
   return sanitizePastedText(joinWrappedLines(removeSpacesBetweenJapanese(text)));
 }
 
+// Tesseractで読み取ります。ブラウザの中だけで処理し、画像は外部へ送信しません。
+async function recognizeWithTesseract(file) {
+  showOcrProgress("準備中", 0);
+  const tesseract = await loadTesseract();
+  const result = await tesseract.recognize(file, OCR_LANGUAGE, { logger: handleOcrProgress });
+  return result?.data?.text || "";
+}
+
 /**
  * 画像ファイルから文字を読み取り、入力欄へ入れます。
- * 通常は読み上げを自動で始めず、内容を直してから読み上げられるようにします。
- * speakAfterOcrがtrueのときだけ、読み取りに続けてそのまま読み上げます。
+ * 「画像の読み取り方法」で選んでいるほうを使うため、貼り付けや
+ * 「クリップボードの文章・画像を読み上げ」の1回の操作だけで読み取りまで進みます。
+ * speakAfterOcrがtrueのときは、読み取りに続けてそのまま読み上げます。
  */
 async function runOcr(file, speakAfterOcr = false) {
+  // 連打しても複数回動かないよう、処理中は受け付けません。
   if (isOcrRunning) return;
 
   if (!file || !file.type.startsWith("image/")) {
@@ -901,23 +911,23 @@ async function runOcr(file, speakAfterOcr = false) {
     return;
   }
 
-  // 通常OCRが失敗した場合でもAI OCRを試せるよう、先に画像を覚えておきます。
-  setAiOcrImage(file);
+  const useAi = getOcrMode() === "ai";
 
   isOcrRunning = true;
+  setOcrModeEnabled(false);
   // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
   if (isReading) stopSpeaking();
   statusText.classList.remove("error");
-  statusText.textContent = "画像から文字を読み取っています";
-  showOcrProgress("準備中", 0);
+  statusText.textContent = useAi ? "AIで文字を読み取っています…" : "画像から文字を読み取っています";
 
   try {
-    const tesseract = await loadTesseract();
-    const result = await tesseract.recognize(file, OCR_LANGUAGE, { logger: handleOcrProgress });
-    const recognizedText = cleanOcrText(result?.data?.text || "");
+    const rawText = useAi ? await recognizeWithGemini(file) : await recognizeWithTesseract(file);
+    const recognizedText = cleanOcrText(rawText);
 
     if (!recognizedText) {
-      showError("画像から文字を読み取れませんでした。明るく大きく写った画像でお試しください。");
+      showError(useAi
+        ? "AIが文字を読み取れませんでした。通常OCRをお試しください。"
+        : "画像から文字を読み取れませんでした。明るく大きく写った画像でお試しください。");
       return;
     }
 
@@ -929,22 +939,100 @@ async function runOcr(file, speakAfterOcr = false) {
       return;
     }
 
-    statusText.textContent = "読み取りが完了しました。内容を直してから読み上げてください。";
+    statusText.textContent = useAi
+      ? "AIで読み取りました。内容を確認して読み上げてください。"
+      : "読み取りが完了しました。内容を直してから読み上げてください。";
     // 携帯電話ではキーボードが出てしまうため、入力欄への移動はパソコンだけにします。
     if (!isMobileBrowser) textInput.focus();
   } catch (error) {
     console.warn("画像の読み取りに失敗しました。", error);
-    showError("画像の文字を読み取れませんでした。通信状況を確認して、もう一度お試しください。");
+    showOcrFailure(error, useAi);
   } finally {
     isOcrRunning = false;
+    setOcrModeEnabled(true);
     hideOcrProgress();
   }
 }
 
+// 失敗の理由に合わせて案内を出します。AI OCRのときは、見分けるための短い印も添えます。
+function showOcrFailure(error, useAi) {
+  if (error?.ocrMessage) {
+    showAiOcrError(error.ocrMessage, error.ocrCode);
+    return;
+  }
+
+  if (!useAi) {
+    showError("画像の文字を読み取れませんでした。通信状況を確認して、もう一度お試しください。");
+    return;
+  }
+
+  if (error?.name === "AbortError") {
+    showAiOcrError("AI OCRが時間内に終わりませんでした。通常OCRをお試しください。", "AI-TIMEOUT-B");
+    return;
+  }
+
+  showAiOcrError("AI OCRを利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
+}
+
+// ===== 画像の読み取り方法（通常OCR / AIで高精度OCR）の選択 =====
+// 選んだ方法は、次に使うときのためにブラウザへ保存します。
+
+const OCR_MODE_STORAGE_KEY = "yomiage-ocr-mode";
+const OCR_MODE_HINTS = {
+  tesseract: "ブラウザの中だけで読み取ります。画像は外部へ送信しません。",
+  ai: "読み取るたびに画像を外部のAI（Gemini）へ送信します。ご利用に応じて料金がかかります。",
+};
+
+function getOcrMode() {
+  const selected = document.querySelector('input[name="ocr-mode"]:checked');
+  return selected?.value === "ai" ? "ai" : "tesseract";
+}
+
+// 読み取り中は、途中で方法を変えられないようにします。
+function setOcrModeEnabled(isEnabled) {
+  ocrModeInputs.forEach((input) => {
+    input.disabled = !isEnabled;
+  });
+}
+
+function updateOcrModeHint() {
+  ocrModeHint.textContent = OCR_MODE_HINTS[getOcrMode()];
+}
+
+// 保存できない設定のブラウザ（プライベート閲覧など）でも、そのまま使えるようにします。
+function saveOcrMode(mode) {
+  try {
+    localStorage.setItem(OCR_MODE_STORAGE_KEY, mode);
+  } catch (error) {
+    console.warn("読み取り方法を保存できませんでした。", error);
+  }
+}
+
+function restoreOcrMode() {
+  try {
+    const savedMode = localStorage.getItem(OCR_MODE_STORAGE_KEY);
+    const savedInput = savedMode && document.querySelector(`input[name="ocr-mode"][value="${savedMode}"]`);
+    if (savedInput) savedInput.checked = true;
+  } catch (error) {
+    console.warn("保存した読み取り方法を読み込めませんでした。", error);
+  }
+
+  updateOcrModeHint();
+}
+
+ocrModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    saveOcrMode(getOcrMode());
+    updateOcrModeHint();
+  });
+});
+
+restoreOcrMode();
+
 // ===== AIで高精度OCR（Gemini API） =====
 // Gemini APIのキーをブラウザへ置くと誰にでも読み取られてしまうため、
 // ブラウザからは直接呼ばず、Vercel側の /api/ocr を経由して呼び出します。
-// 料金がかかるため、このボタンを押したときだけAPIを呼び出します（貼り付けただけでは呼びません）。
+// 料金がかかるため、「画像の読み取り方法」でAI OCRを選んでいるときだけ呼び出します。
 
 const AI_OCR_ENDPOINT = "/api/ocr";
 const AI_OCR_TIMEOUT_MS = 35000;
@@ -954,28 +1042,18 @@ const AI_OCR_MAX_IMAGE_SIDE = 2000;
 const AI_OCR_SUPPORTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 // 文字がつぶれないよう、画質は高いほうから順に試します。
 const AI_OCR_JPEG_QUALITIES = [0.92, 0.8, 0.7];
-const AI_OCR_BUTTON_LABEL = '<span aria-hidden="true">✨</span> AIで高精度OCR';
-const AI_OCR_RUNNING_LABEL = '<span aria-hidden="true">⏳</span> AIで読み取り中…';
-
-let aiOcrImage = null;
-let isAiOcrRunning = false;
-
-// 読み取った画像を覚えておき、同じ画像をAI OCRでも使えるようにします。
-// 画像がないときはボタンを押せない状態にし、機能があること自体は分かるようにします。
-function setAiOcrImage(file) {
-  aiOcrImage = file;
-  aiOcrButton.disabled = !file;
-}
 
 // うまくいかないときにどこで止まったかを見分けられるよう、短い印を添えて表示します。
 function showAiOcrError(message, code) {
   showError(code ? `${message}（${code}）` : message);
 }
 
-function setAiOcrBusy(isBusy) {
-  aiOcrButton.disabled = isBusy || !aiOcrImage;
-  aiOcrButton.setAttribute("aria-busy", String(isBusy));
-  aiOcrButton.innerHTML = isBusy ? AI_OCR_RUNNING_LABEL : AI_OCR_BUTTON_LABEL;
+// 画面へそのまま出せる案内を持たせたエラーです。
+function createOcrError(message, code) {
+  const error = new Error(message);
+  error.ocrMessage = message;
+  error.ocrCode = code;
+  return error;
 }
 
 function readImageAsBase64(blob) {
@@ -1005,7 +1083,7 @@ async function shrinkImageForAiOcr(file) {
     if (blob && blob.size <= AI_OCR_MAX_UPLOAD_BYTES) return blob;
   }
 
-  throw new Error("画像が大きすぎます。");
+  throw createOcrError("画像が大きすぎます。少し小さい画像でお試しください。", "AI-SIZE-B");
 }
 
 // そのまま送れる画像はそのまま、送れない画像だけ縮小して、Base64にして返します。
@@ -1019,25 +1097,13 @@ async function prepareImageForAiOcr(file) {
   };
 }
 
-/**
- * 覚えている画像をVercel側のAPIへ送り、AIが読み取った文章を入力欄へ入れます。
- * 読み上げは自動で始めず、これまでどおり「読み上げ」を押して再生します。
- */
-async function runAiOcr() {
-  // 連打しても複数回送らないよう、処理中は受け付けません。
-  if (isAiOcrRunning || isOcrRunning || !aiOcrImage) return;
-
-  isAiOcrRunning = true;
-  setAiOcrBusy(true);
-  if (isReading) stopSpeaking();
-  statusText.classList.remove("error");
-  statusText.textContent = "AIで文字を読み取っています…";
-
+// Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
+async function recognizeWithGemini(file) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_OCR_TIMEOUT_MS);
 
   try {
-    const payload = await prepareImageForAiOcr(aiOcrImage);
+    const payload = await prepareImageForAiOcr(file);
     const response = await fetch(AI_OCR_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1047,53 +1113,26 @@ async function runAiOcr() {
 
     const result = await response.json().catch(() => null);
 
+    // Vercel側の処理が見つからない・落ちている場合は、JSONではない応答が返ります。
     if (!result) {
-      // Vercel側の処理が見つからない・落ちている場合は、JSONではない応答が返ります。
-      const notFound = response.status === 404;
-      const tooLarge = response.status === 413;
-      showAiOcrError(
-        notFound
-          ? "AI OCRの機能が見つかりません。デプロイが終わっているか確認してください。"
-          : tooLarge
-            ? "画像が大きすぎます。少し小さい画像でお試しください。"
-            : "AI OCRの応答を読み取れませんでした。しばらくしてから再度お試しください。",
-        `AI-HTTP${response.status}`,
-      );
-      return;
+      if (response.status === 404) {
+        throw createOcrError("AI OCRの機能が見つかりません。デプロイが終わっているか確認してください。", "AI-HTTP404");
+      }
+      if (response.status === 413) {
+        throw createOcrError("画像が大きすぎます。少し小さい画像でお試しください。", "AI-HTTP413");
+      }
+      throw createOcrError("AI OCRの応答を読み取れませんでした。しばらくしてから再度お試しください。", `AI-HTTP${response.status}`);
     }
 
     if (!response.ok || !result.text) {
-      showAiOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
-      return;
+      throw createOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
     }
 
-    const recognizedText = cleanOcrText(result.text);
-    if (!recognizedText) {
-      showError("AIが文字を読み取れませんでした。通常OCRをお試しください。");
-      return;
-    }
-
-    textInput.value = recognizedText;
-    updateCharacterCount();
-    statusText.textContent = "AIで読み取りました。内容を確認して読み上げてください。";
-    if (!isMobileBrowser) textInput.focus();
-  } catch (error) {
-    console.warn("AI OCRに失敗しました。", error);
-    if (error?.name === "AbortError") {
-      showAiOcrError("AI OCRが時間内に終わりませんでした。通常OCRをお試しください。", "AI-TIMEOUT-B");
-    } else if (error?.message === "画像が大きすぎます。") {
-      showAiOcrError("画像が大きすぎます。", "AI-SIZE-B");
-    } else {
-      showAiOcrError("AI OCRを利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
-    }
+    return result.text;
   } finally {
     window.clearTimeout(timeoutId);
-    isAiOcrRunning = false;
-    setAiOcrBusy(false);
   }
 }
-
-aiOcrButton.addEventListener("click", runAiOcr);
 
 /**
  * クリップボードの画像をCtrl+Vで読み取ります。
