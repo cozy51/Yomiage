@@ -17,6 +17,9 @@ const { generateText, listAvailableModels, getGeminiModel } = require("./_gemini
 const AI_REQUEST_LIMIT = 30;
 const AI_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TEXT_LENGTH = 20000;
+// Vercelの上限（30秒）内に収めるため、やり直しは残り時間がこれだけあるときだけ行います。
+const AI_TOTAL_BUDGET_MS = 26000;
+const AI_RETRY_MIN_MS = 6000;
 
 // 翻訳できる言語です。増やすときは、この1か所へ追加してください。
 const TARGET_LANGUAGES = {
@@ -43,37 +46,55 @@ const MESSAGES = {
   empty: "AIが文章を返しませんでした。もう一度お試しください。",
 };
 
-// 翻訳の指示です。入力の言語はGemini側で判断させ、訳文だけを返させます。
-function buildTranslatePrompt(languageName) {
-  return `次の文章を${languageName}へ翻訳してください。
+// 翻訳の指示です。本文とは別の「指示」としてGeminiへ渡します。
+// 入力の言語はGemini側で判断させ、訳文だけを返させます。
+function buildTranslateInstruction(languageName) {
+  return `あなたは翻訳者です。受け取った文章を${languageName}へ翻訳して返します。
 
-以下のルールを守ってください。
+必ず守ってください。
 
 ・入力された文章の言語は自動で判断する
-・翻訳した文章だけを返す
-・前置きや解説、注釈を付けない
-・原文の意味を変えない、内容を足さない
+・文章全体を${languageName}にする。ほかの言語が混ざっていても、すべて${languageName}へ訳す
+・すでに${languageName}で書かれている部分は、その表現のまま残す
+・翻訳した文章だけを返す。原文・前置き・解説・注釈は付けない
+・原文にない情報を足さない、原文の意味を変えない
 ・段落と改行はできるだけそのまま保つ
 ・読み上げに使うため、Markdownや装飾記号は使わない
-・すでに${languageName}で書かれている部分は、そのまま残す
-
---- ここから文章 ---`;
+・画像から読み取った文章のため、記号の混ざりや崩れた単語が含まれることがある。その場合も、意味の通る${languageName}の文章にする
+・原文をそのまま書き写して返してはいけない`;
 }
 
 // 要約の指示です。入力の言語を問わず、日本語の要約を返させます。
-const SUMMARIZE_PROMPT = `次の文章を日本語で簡潔に要約してください。
+const SUMMARIZE_INSTRUCTION = `あなたは要約者です。受け取った文章を日本語で簡潔に要約して返します。
 
-以下のルールを守ってください。
+必ず守ってください。
 
 ・入力された文章の言語は自動で判断する
 ・入力が日本語以外でも、要約は日本語で書く
-・要約した文章だけを返す
-・前置きや解説、注釈を付けない
+・要約した文章だけを返す。原文・前置き・解説・注釈は付けない
 ・元の文章にない情報を足さない
 ・大事な要点は落とさない
+・元の文章より必ず短くする
 ・読み上げに使うため、Markdownや箇条書きの記号は使わず、文章の形で書く
+・原文をそのまま書き写して返してはいけない`;
 
---- ここから文章 ---`;
+// 処理する文章です。指示と区切って渡し、どこからが文章かを分かるようにします。
+function buildUserText(action, languageName, text) {
+  const request = action === "translate"
+    ? `次の文章を${languageName}へ翻訳してください。`
+    : "次の文章を日本語で要約してください。";
+  return `${request}
+
+--- ここから文章 ---
+${text}
+--- ここまで ---`;
+}
+
+// 見た目の違い（空白や改行、全角と半角）を無視して、中身が同じかどうかを調べます。
+function isSameText(left, right) {
+  const normalize = (value) => value.replace(/\s+/g, "").normalize("NFKC");
+  return normalize(left) === normalize(right);
+}
 
 function parseRequestBody(body) {
   if (!body) return null;
@@ -126,25 +147,51 @@ module.exports = async function handler(request, response) {
     return response.status(413).json({ message: MESSAGES.tooLong, code: "AI-LONG" });
   }
 
-  let prompt = SUMMARIZE_PROMPT;
+  let languageName = "";
   if (action === "translate") {
     const targetLanguage = typeof body?.targetLanguage === "string" ? body.targetLanguage : "ja";
-    const languageName = TARGET_LANGUAGES[targetLanguage];
+    languageName = TARGET_LANGUAGES[targetLanguage];
     if (!languageName) {
       return response.status(400).json({ message: MESSAGES.invalidLanguage, code: "AI-LANG" });
     }
-    prompt = buildTranslatePrompt(languageName);
   }
 
+  const instruction = action === "translate" ? buildTranslateInstruction(languageName) : SUMMARIZE_INSTRUCTION;
+  const userText = buildUserText(action, languageName, text);
+
+  const startedAt = Date.now();
+
   try {
-    const result = await generateText(apiKey, [{ text: `${prompt}\n${text}` }]);
+    let result = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction });
 
     if (!result) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
     }
 
+    // 原文がそのまま返ってきたときは、処理されていないため、強く念を押してもう一度だけ試します。
+    let unchanged = isSameText(result, text);
+    const remainingMs = AI_TOTAL_BUDGET_MS - (Date.now() - startedAt);
+    if (unchanged && remainingMs >= AI_RETRY_MIN_MS) {
+      console.error("原文がそのまま返ってきたため、もう一度試します。", action);
+      const retryInstruction = `${instruction}
+
+・前回はあなたが原文をそのまま返してしまいました。今度は必ず${action === "translate" ? `${languageName}へ翻訳した` : "日本語で要約した"}文章を返してください`;
+      const retryResult = await generateText(apiKey, [{ text: userText }], {
+        systemInstruction: retryInstruction,
+        // 同じ答えを繰り返さないよう、少しだけ揺らぎを持たせます。
+        temperature: 0.3,
+        timeoutMs: remainingMs,
+      });
+
+      if (retryResult && !isSameText(retryResult, text)) {
+        result = retryResult;
+        unchanged = false;
+      }
+    }
+
     // 処理した文章だけを返します。余分な情報は返しません。
-    return response.status(200).json({ text: result });
+    // unchangedは、原文と中身が変わらなかったことを画面へ伝えるための印です。
+    return response.status(200).json({ text: result, unchanged });
   } catch (error) {
     const status = error?.geminiStatus;
 

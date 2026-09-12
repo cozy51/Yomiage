@@ -23,6 +23,7 @@ const processModeInputs = document.querySelectorAll('input[name="process-mode"]'
 const aiResultSection = document.getElementById("ai-result");
 const aiResultInput = document.getElementById("ai-result-input");
 const aiResultKind = document.getElementById("ai-result-kind");
+const aiResultHelp = document.getElementById("ai-result-help");
 const aiResultCount = document.getElementById("ai-result-count");
 const aiResultCopy = document.getElementById("ai-result-copy");
 const aiResultClear = document.getElementById("ai-result-clear");
@@ -1204,6 +1205,7 @@ async function recognizeWithGemini(file) {
       throw createOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
     }
 
+    // 読み取った文章だけを受け取ります。
     return result.text;
   } finally {
     window.clearTimeout(timeoutId);
@@ -1298,11 +1300,20 @@ function updateAiResultCount() {
   aiResultCount.textContent = `${Array.from(aiResultInput.value).length.toLocaleString("ja-JP")}文字`;
 }
 
-function showAiResult(text, mode) {
-  aiResultInput.value = text;
-  aiResultKind.textContent = mode === "translate"
+const AI_RESULT_HELP = "読み上げるのは、こちらの文章です。「消す」を押すと、上の文章を読み上げます。";
+
+function showAiResult(text, mode, isUnchanged = false) {
+  const kind = mode === "translate"
     ? `${translateLanguage.selectedOptions[0].textContent}に翻訳`
     : "日本語に要約";
+
+  aiResultInput.value = text;
+  // AIが原文をそのまま返したときは、処理されていないことが分かるようにします。
+  aiResultKind.textContent = isUnchanged ? `${kind}（変わりませんでした）` : kind;
+  aiResultKind.classList.toggle("ai-result-kind-warning", isUnchanged);
+  aiResultHelp.textContent = isUnchanged
+    ? `AIは文章を変えずに返しました。すでに${mode === "translate" ? translateLanguage.selectedOptions[0].textContent + "の文章" : "短い文章"}か、読み取った文字が崩れている可能性があります。${AI_RESULT_HELP}`
+    : AI_RESULT_HELP;
   aiResultSection.hidden = false;
   updateAiResultCount();
 }
@@ -1360,7 +1371,8 @@ async function requestAiText(mode, text) {
       throw createOcrError(result.message || "AIの処理に失敗しました。しばらくしてから再度お試しください。", result.code);
     }
 
-    return result.text;
+    // unchangedは、AIが原文をそのまま返したことを示す印です。
+    return { text: result.text, unchanged: Boolean(result.unchanged) };
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -1380,15 +1392,15 @@ async function applyAiMode(mode) {
   statusText.textContent = mode === "translate" ? "AIで翻訳しています…" : "AIで要約しています…";
 
   try {
-    const processedText = await withPasswordRetry(() => requestAiText(mode, sourceText));
-    const cleanedText = sanitizePastedText(processedText);
+    const processed = await withPasswordRetry(() => requestAiText(mode, sourceText));
+    const cleanedText = sanitizePastedText(processed.text);
 
     if (!cleanedText) {
       showError("AIが文章を返しませんでした。もう一度お試しください。");
       return false;
     }
 
-    showAiResult(cleanedText, mode);
+    showAiResult(cleanedText, mode, processed.unchanged);
     // 同じ文章・同じモードのときは、二度AIへ送らないように覚えておきます。
     aiResultSource = sourceText;
     aiResultMode = mode;
