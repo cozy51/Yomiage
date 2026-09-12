@@ -21,6 +21,11 @@ const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
 const ocrModeInputs = document.querySelectorAll('input[name="ocr-mode"]');
 const ocrModeHint = document.getElementById("ocr-mode-hint");
+const restoreButton = document.getElementById("restore-button");
+const aiModeInputs = document.querySelectorAll('input[name="ai-mode"]');
+const aiModeHint = document.getElementById("ai-mode-hint");
+const translateLanguageField = document.getElementById("translate-language-field");
+const translateLanguage = document.getElementById("translate-language");
 const passwordDialog = document.getElementById("password-dialog");
 const passwordForm = document.getElementById("password-form");
 const passwordInput = document.getElementById("password-input");
@@ -583,6 +588,7 @@ function clearBeforeClipboardReading() {
   stopSpeaking();
   textInput.value = "";
   updateCharacterCount();
+  forgetOriginalText();
 }
 
 /**
@@ -729,7 +735,7 @@ async function readFromClipboard() {
 
     textInput.value = sanitizedText;
     updateCharacterCount();
-    startSpeaking();
+    await startReading();
   } catch (error) {
     console.warn("クリップボードの読み取りに失敗しました。", error);
     const securityHint = window.isSecureContext
@@ -941,13 +947,22 @@ async function runOcr(file, speakAfterOcr = false) {
     updateCharacterCount();
 
     if (speakAfterOcr) {
-      startSpeaking();
+      // 画像 → 読み取り → （選んでいれば）AIの処理 → 読み上げ、の順に進みます。
+      await startReading();
       return;
     }
 
-    statusText.textContent = useAi
-      ? "AIで読み取りました。内容を確認して読み上げてください。"
-      : "読み取りが完了しました。内容を直してから読み上げてください。";
+    // 読み上げまでは進めない場合も、読み上げモードを選んでいればAIの処理までは行います。
+    const aiResult = await applyAiModeAfterOcr();
+    if (aiResult === "failed") return;
+
+    if (aiResult === "done") {
+      statusText.textContent = "AIで処理しました。内容を確認して読み上げてください。";
+    } else {
+      statusText.textContent = useAi
+        ? "AIで読み取りました。内容を確認して読み上げてください。"
+        : "読み取りが完了しました。内容を直してから読み上げてください。";
+    }
     // 携帯電話ではキーボードが出てしまうため、入力欄への移動はパソコンだけにします。
     if (!isMobileBrowser) textInput.focus();
   } catch (error) {
@@ -1181,22 +1196,26 @@ async function prepareImageForAiOcr(file) {
 }
 
 /**
- * AI OCRを実行します。パスワードが必要（401）だったときは入力を求め、
- * 認証できたらそのまま同じ画像でもう一度読み取ります。
+ * AIの処理を実行します。パスワードが必要（401）だったときは入力を求め、
+ * 認証できたらそのまま同じ内容でもう一度実行します。
  */
-async function recognizeWithGeminiAndLogin(file) {
+async function withPasswordRetry(run) {
   try {
-    return await recognizeWithGemini(file);
+    return await run();
   } catch (error) {
     if (error?.ocrCode !== "AI-401") throw error;
 
     const isAuthenticated = await requestPassword();
     if (!isAuthenticated) {
-      throw createOcrError("AI OCRの利用には、パスワードの入力が必要です。", "AI-401");
+      throw createOcrError("AIの機能を使うには、パスワードの入力が必要です。", "AI-401");
     }
 
-    return recognizeWithGemini(file);
+    return run();
   }
+}
+
+function recognizeWithGeminiAndLogin(file) {
+  return withPasswordRetry(() => recognizeWithGemini(file));
 }
 
 // Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
@@ -1238,6 +1257,192 @@ async function recognizeWithGemini(file) {
   }
 }
 
+// ===== 読み上げモード（そのまま / AIで翻訳 / AIで要約） =====
+// 翻訳と要約はGeminiを使うため、AI OCRと同じパスワード認証が必要です。
+// 元の文章は残しておき、「元の文章に戻す」でいつでも戻せるようにします。
+
+const AI_TEXT_ENDPOINT = "/api/ai";
+const AI_TEXT_TIMEOUT_MS = 45000;
+const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
+const AI_MODE_HINTS = {
+  plain: "入力された文章をそのまま読み上げます。AIは使いません。",
+  translate: "読み上げる前に、AI（Gemini）で翻訳します。文章を外部のAIへ送信し、ご利用に応じて料金がかかります。",
+  summarize: "読み上げる前に、AI（Gemini）で日本語に要約します。文章を外部のAIへ送信し、ご利用に応じて料金がかかります。",
+};
+
+// AIが処理する前の文章です。これがあるあいだは「元の文章に戻す」を表示します。
+let textBeforeAi = "";
+// AIが作った文章です。同じ文章をもう一度AIへ送らないために覚えておきます。
+let aiProcessedText = "";
+
+function getAiMode() {
+  const selected = document.querySelector('input[name="ai-mode"]:checked');
+  return selected ? selected.value : "plain";
+}
+
+function setAiModeEnabled(isEnabled) {
+  aiModeInputs.forEach((input) => {
+    input.disabled = !isEnabled;
+  });
+  translateLanguage.disabled = !isEnabled;
+}
+
+function updateAiModeHint() {
+  const mode = getAiMode();
+  aiModeHint.textContent = AI_MODE_HINTS[mode];
+  translateLanguageField.hidden = mode !== "translate";
+}
+
+// 翻訳先の言語だけを保存します。読み上げモードは、開くたびに「そのまま読み上げ」へ戻します
+// （知らないうちにAIへ送信して料金がかかることを防ぐためです）。
+function restoreTranslateLanguage() {
+  try {
+    const savedLanguage = localStorage.getItem(TRANSLATE_LANGUAGE_STORAGE_KEY);
+    if (savedLanguage && [...translateLanguage.options].some((option) => option.value === savedLanguage)) {
+      translateLanguage.value = savedLanguage;
+    }
+  } catch (error) {
+    console.warn("翻訳先の言語を読み込めませんでした。", error);
+  }
+
+  updateAiModeHint();
+}
+
+aiModeInputs.forEach((input) => {
+  input.addEventListener("change", updateAiModeHint);
+});
+
+translateLanguage.addEventListener("change", () => {
+  try {
+    localStorage.setItem(TRANSLATE_LANGUAGE_STORAGE_KEY, translateLanguage.value);
+  } catch (error) {
+    console.warn("翻訳先の言語を保存できませんでした。", error);
+  }
+});
+
+restoreTranslateLanguage();
+
+// AIで置き換える前の文章を覚えて、「元の文章に戻す」を使えるようにします。
+function rememberOriginalText(text) {
+  textBeforeAi = text;
+  restoreButton.hidden = !text;
+}
+
+function forgetOriginalText() {
+  textBeforeAi = "";
+  aiProcessedText = "";
+  restoreButton.hidden = true;
+}
+
+restoreButton.addEventListener("click", () => {
+  if (!textBeforeAi) return;
+
+  if (isReading) stopSpeaking();
+  textInput.value = textBeforeAi;
+  updateCharacterCount();
+  forgetOriginalText();
+  statusText.classList.remove("error");
+  statusText.textContent = "元の文章に戻しました。";
+});
+
+// Vercel側の /api/ai を経由して、Geminiが処理した文章を受け取ります。
+async function requestAiText(mode, text) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), AI_TEXT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(AI_TEXT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // 認証の引換券（Cookie）を一緒に送ります。
+      credentials: "same-origin",
+      body: JSON.stringify(mode === "translate"
+        ? { action: "translate", text, targetLanguage: translateLanguage.value }
+        : { action: "summarize", text }),
+      signal: controller.signal,
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!result) {
+      if (response.status === 404) {
+        throw createOcrError("AIの機能が見つかりません。デプロイが終わっているか確認してください。", "AI-HTTP404");
+      }
+      throw createOcrError("AIの応答を読み取れませんでした。しばらくしてから再度お試しください。", `AI-HTTP${response.status}`);
+    }
+
+    if (!response.ok || !result.text) {
+      throw createOcrError(result.message || "AIの処理に失敗しました。しばらくしてから再度お試しください。", result.code);
+    }
+
+    return result.text;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * 選んだ読み上げモードに合わせて、読み上げる前に文章をAIで処理します。
+ * 処理できたらtrueを返します。失敗したりパスワードを入れなかった場合はfalseを返します。
+ */
+async function applyAiMode(mode) {
+  const originalText = textInput.value;
+
+  setAiModeEnabled(false);
+  if (isReading) stopSpeaking();
+  statusText.classList.remove("error");
+  statusText.textContent = mode === "translate" ? "AIで翻訳しています…" : "AIで要約しています…";
+
+  try {
+    const processedText = await withPasswordRetry(() => requestAiText(mode, originalText));
+    const cleanedText = sanitizePastedText(processedText);
+
+    if (!cleanedText) {
+      showError("AIが文章を返しませんでした。もう一度お試しください。");
+      return false;
+    }
+
+    rememberOriginalText(originalText);
+    aiProcessedText = cleanedText;
+    textInput.value = cleanedText;
+    updateCharacterCount();
+    return true;
+  } catch (error) {
+    console.warn("AIの処理に失敗しました。", error);
+    if (error?.ocrMessage) showAiOcrError(error.ocrMessage, error.ocrCode);
+    else if (error?.name === "AbortError") showAiOcrError("AIの処理が時間内に終わりませんでした。短い文章でお試しください。", "AI-TIMEOUT-B");
+    else showAiOcrError("AIの機能を利用できません。しばらくしてから再度お試しください。", "AI-NET-B");
+    return false;
+  } finally {
+    setAiModeEnabled(true);
+  }
+}
+
+// 画像を読み取ったあと、読み上げモードを選んでいれば、続けてAIの処理まで進めます。
+async function applyAiModeAfterOcr() {
+  const mode = getAiMode();
+  if (mode === "plain") return "skipped";
+  return (await applyAiMode(mode)) ? "done" : "failed";
+}
+
+/**
+ * 読み上げの入口です。「そのまま読み上げ」ならこれまでどおりすぐ読み上げ、
+ * 翻訳・要約を選んでいるときは、先にAIで処理してから読み上げます。
+ */
+async function startReading() {
+  const mode = getAiMode();
+  const text = textInput.value.trim();
+
+  // 文章がないときや、すでにAIで処理した文章のときは、そのまま読み上げます。
+  if (mode === "plain" || !text || textInput.value === aiProcessedText) {
+    startSpeaking();
+    return;
+  }
+
+  const isProcessed = await applyAiMode(mode);
+  if (isProcessed) startSpeaking();
+}
+
 /**
  * クリップボードの画像をCtrl+Vで読み取ります。
  * 文章が含まれるときは何もせず、これまでどおりの貼り付け動作にします。
@@ -1277,7 +1482,7 @@ textInput.addEventListener("paste", (event) => {
 
   textInput.value = sanitizedText;
   updateCharacterCount();
-  startSpeaking();
+  startReading();
 });
 
 rateInput.addEventListener("input", () => {
@@ -1286,7 +1491,7 @@ rateInput.addEventListener("input", () => {
   rateInput.setAttribute("aria-valuetext", `${rate}倍`);
 });
 
-speakButton.addEventListener("click", startSpeaking);
+speakButton.addEventListener("click", startReading);
 clipboardButton.addEventListener("click", readFromClipboard);
 copyButton.addEventListener("click", copyTextToClipboard);
 pauseButton.addEventListener("click", togglePause);
