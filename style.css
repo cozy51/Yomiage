@@ -133,31 +133,9 @@ select:focus {
   margin: 6px 0 0;
 }
 
-/* 画像OCR（画像から文字を読み取る）の入力欄です。 */
-.ocr {
-  margin-top: 18px;
-  padding: 16px;
-  border: 2px dashed var(--border);
-  border-radius: 12px;
-  background: #fbfdff;
-  text-align: center;
-  transition: border-color .15s, background-color .15s;
-}
-
-/* 画像をページ上へドラッグしている間は、受け取れることを枠の色で示します。 */
-.ocr.is-dragover {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-}
-
-.ocr-hint {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: .86rem;
-}
-
+/* 画像から文字を読み取っている間の進捗表示です。 */
 .ocr-progress {
-  margin-top: 14px;
+  margin-top: 20px;
 }
 
 .ocr-progress-bar {
@@ -180,6 +158,7 @@ select:focus {
   color: var(--primary-dark);
   font-size: .86rem;
   font-weight: 700;
+  text-align: center;
 }
 
 .settings {
@@ -237,6 +216,11 @@ input[type="range"] {
   justify-content: center;
   gap: 12px;
   margin-top: 28px;
+}
+
+/* ボタンの文言が、語の途中で折り返されないようにします。 */
+.nowrap {
+  white-space: nowrap;
 }
 
 .button {
@@ -485,14 +469,6 @@ input[type="range"] {
     grid-template-columns: 1fr;
     gap: 18px;
     padding: 17px;
-  }
-
-  .ocr {
-    padding: 14px;
-  }
-
-  #ocr-button {
-    width: 100%;
   }
 
   .controls {

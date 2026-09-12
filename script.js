@@ -15,9 +15,6 @@ const currentSection = document.getElementById("current-section");
 const currentTitleText = document.getElementById("current-title-text");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
-const ocrZone = document.getElementById("ocr-zone");
-const ocrButton = document.getElementById("ocr-button");
-const ocrFileInput = document.getElementById("ocr-file");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
@@ -673,11 +670,11 @@ async function readFromClipboard() {
     textInput.focus();
   } finally {
     clipboardButton.disabled = false;
-    clipboardButton.innerHTML = '<span aria-hidden="true">📋</span> クリップボードから読み上げ';
+    clipboardButton.innerHTML = '<span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>';
   }
 }
 
-// ===== 画像から文字を読み取る（OCR） =====
+// ===== クリップボードの画像から文字を読み取る（OCR） =====
 // Tesseract.jsをCDNから読み込み、ブラウザの中だけで処理します。サーバーやAPIキーは不要です。
 
 const TESSERACT_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js";
@@ -725,7 +722,7 @@ function loadTesseract() {
   return tesseractLoader;
 }
 
-// ドラッグ・貼り付けされたものから、最初の画像ファイルを取り出します。
+// 貼り付けられたものから、最初の画像を取り出します。
 function findImageFile(dataTransfer) {
   return Array.from(dataTransfer?.files || []).find((file) => file.type.startsWith("image/")) || null;
 }
@@ -761,10 +758,6 @@ async function readClipboardContent() {
   }
 
   return { text: await navigator.clipboard.readText(), image: null };
-}
-
-function hasDraggedFiles(dataTransfer) {
-  return Array.from(dataTransfer?.types || []).includes("Files");
 }
 
 function showOcrProgress(label, ratio) {
@@ -833,13 +826,6 @@ function cleanOcrText(text) {
   return sanitizePastedText(joinWrappedLines(removeSpacesBetweenJapanese(text)));
 }
 
-function setOcrBusy(isBusy) {
-  ocrButton.disabled = isBusy;
-  ocrButton.innerHTML = isBusy
-    ? '<span aria-hidden="true">⏳</span> 読み取り中…'
-    : '<span aria-hidden="true">📷</span> 画像から文字を読み取る';
-}
-
 /**
  * 画像ファイルから文字を読み取り、入力欄へ入れます。
  * 通常は読み上げを自動で始めず、内容を直してから読み上げられるようにします。
@@ -849,14 +835,13 @@ async function runOcr(file, speakAfterOcr = false) {
   if (isOcrRunning) return;
 
   if (!file || !file.type.startsWith("image/")) {
-    showError("画像ファイル（PNG・JPEGなど）を選んでください。");
+    showError("画像を読み取れませんでした。もう一度コピーしてからお試しください。");
     return;
   }
 
   isOcrRunning = true;
   // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
   if (isReading) stopSpeaking();
-  setOcrBusy(true);
   statusText.classList.remove("error");
   statusText.textContent = "画像から文字を読み取っています";
   showOcrProgress("準備中", 0);
@@ -888,45 +873,8 @@ async function runOcr(file, speakAfterOcr = false) {
   } finally {
     isOcrRunning = false;
     hideOcrProgress();
-    setOcrBusy(false);
   }
 }
-
-ocrButton.addEventListener("click", () => ocrFileInput.click());
-
-ocrFileInput.addEventListener("change", () => {
-  const file = ocrFileInput.files?.[0] || null;
-  // 同じ画像を続けて選び直せるように、選択状態を消してから処理します。
-  ocrFileInput.value = "";
-  if (file) runOcr(file);
-});
-
-// 画像をページのどこへドロップしても読み取ります。文字のドラッグは今までどおりです。
-document.addEventListener("dragover", (event) => {
-  if (!hasDraggedFiles(event.dataTransfer)) return;
-  event.preventDefault();
-  ocrZone.classList.add("is-dragover");
-});
-
-document.addEventListener("dragleave", (event) => {
-  // ページの外へ出たときだけ、受け取れる表示を戻します。
-  if (event.relatedTarget) return;
-  ocrZone.classList.remove("is-dragover");
-});
-
-document.addEventListener("drop", (event) => {
-  if (!hasDraggedFiles(event.dataTransfer)) return;
-  event.preventDefault();
-  ocrZone.classList.remove("is-dragover");
-
-  const file = findImageFile(event.dataTransfer);
-  if (!file) {
-    showError("画像ファイル（PNG・JPEGなど）をドロップしてください。");
-    return;
-  }
-
-  runOcr(file);
-});
 
 /**
  * クリップボードの画像をCtrl+Vで読み取ります。
