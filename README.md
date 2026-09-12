@@ -96,7 +96,7 @@ AI OCRが失敗したときは、画面の案内のうしろに `（AI-G403）` 
 | --- | --- | --- |
 | `AI-NOKEY` | `GEMINI_API_KEY` が設定されていない | Vercelの環境変数を登録して再デプロイする |
 | `AI-G400` / `AI-G401` / `AI-G403` | Gemini APIがキーを受け付けなかった | APIキーの値と、キーの利用制限を確認する |
-| `AI-G404` | そのモデルを使えない | `api/ocr.js` の `GEMINI_MODEL` を確認する |
+| `AI-G404` | そのモデルを使えない | 案内に表示される「利用できるモデルの例」を `GEMINI_MODEL` へ設定する |
 | `AI-G429` | 利用制限に達した | しばらく待ってから試す |
 | `AI-EMPTY` | AIが文章を返さなかった | 別の画像で試す |
 | `AI-TIMEOUT` | 時間内に終わらなかった | 小さい画像で試す |
@@ -111,7 +111,11 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 
 ### 使用するモデルの変更
 
-使用するGeminiのモデル名は `api/ocr.js` の先頭にある `GEMINI_MODEL` の1か所だけで管理しています。初期値は `gemini-2.5-flash-lite` です。`gemini-2.5-flash` など別のモデルへ変更するときは、この値だけを書き換えてください。
+使用するGeminiのモデル名は `api/ocr.js` の先頭にある `DEFAULT_GEMINI_MODEL` の1か所だけで管理しています。初期値は `gemini-2.5-flash-lite` です。別のモデルへ変更するときは、この値だけを書き換えてください。
+
+Vercelの環境変数に `GEMINI_MODEL` を設定した場合は、そちらが優先されます。コードを変えずに別のモデルを試したいときに使えます（`Settings` → `Environment Variables` で `GEMINI_MODEL` を追加し、再デプロイしてください）。値が空のときや使えない形のときは、`DEFAULT_GEMINI_MODEL` に戻ります。
+
+モデル名が使えない場合（`AI-G404`）は、そのAPIキーで利用できるモデル名を問い合わせて、案内のなかに例として表示します。表示された名前を `GEMINI_MODEL` へ設定するか、`DEFAULT_GEMINI_MODEL` を書き換えてください。
 
 初期設定は「Microsoft 七海」（利用可能な場合）と2.0倍速です。七海が利用できない環境では、既定の日本語音声などが自動的に選択されます。
 
