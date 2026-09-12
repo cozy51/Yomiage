@@ -195,6 +195,34 @@ select:focus {
   margin: 6px 0 0;
 }
 
+/* AIが翻訳・要約した文章を入れる欄です。元の文章は上の入力欄に残します。 */
+.ai-result {
+  margin-top: 18px;
+  padding: 14px 16px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: var(--primary-soft);
+}
+
+.ai-result textarea {
+  min-height: 120px;
+  background: #fff;
+}
+
+.ai-result .input-help {
+  color: var(--primary-dark);
+}
+
+.ai-result-kind {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: var(--primary-dark);
+  font-size: .78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 /* 画像を読み取る方法（通常OCR / AI OCR）の選択です。 */
 .ocr-mode {
   display: flex;

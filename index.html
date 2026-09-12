@@ -31,9 +31,6 @@
           <button id="copy-button" class="copy-button" type="button">
             <span aria-hidden="true">📄</span> コピー
           </button>
-          <button id="restore-button" class="copy-button" type="button" hidden>
-            <span aria-hidden="true">↩</span> 元の文章に戻す
-          </button>
         </div>
         <span id="character-count" aria-live="polite">0文字</span>
       </div>
@@ -44,6 +41,24 @@
         aria-describedby="input-help"
       ></textarea>
       <p id="input-help" class="input-help">入力欄へ文章を貼り付けると、以前の文章を消してすぐに読み上げます。画像を貼り付けた場合は、文字を読み取って入力します。</p>
+
+      <section id="ai-result" class="ai-result" aria-labelledby="ai-result-label" hidden>
+        <div class="input-heading">
+          <div class="input-heading-main">
+            <label id="ai-result-label" for="ai-result-input">AIの結果</label>
+            <span id="ai-result-kind" class="ai-result-kind"></span>
+            <button id="ai-result-copy" class="copy-button" type="button">
+              <span aria-hidden="true">📄</span> コピー
+            </button>
+            <button id="ai-result-clear" class="copy-button" type="button">
+              <span aria-hidden="true">✕</span> 消す
+            </button>
+          </div>
+          <span id="ai-result-count" aria-live="polite">0文字</span>
+        </div>
+        <textarea id="ai-result-input" rows="5" aria-describedby="ai-result-help"></textarea>
+        <p id="ai-result-help" class="input-help">読み上げるのは、こちらの文章です。「消す」を押すと、上の文章を読み上げます。</p>
+      </section>
 
       <fieldset class="ocr-mode">
         <legend>画像の読み取り方法</legend>

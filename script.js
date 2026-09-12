@@ -21,7 +21,12 @@ const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
 const ocrModeInputs = document.querySelectorAll('input[name="ocr-mode"]');
 const ocrModeHint = document.getElementById("ocr-mode-hint");
-const restoreButton = document.getElementById("restore-button");
+const aiResultSection = document.getElementById("ai-result");
+const aiResultInput = document.getElementById("ai-result-input");
+const aiResultKind = document.getElementById("ai-result-kind");
+const aiResultCount = document.getElementById("ai-result-count");
+const aiResultCopy = document.getElementById("ai-result-copy");
+const aiResultClear = document.getElementById("ai-result-clear");
 const aiModeInputs = document.querySelectorAll('input[name="ai-mode"]');
 const aiModeHint = document.getElementById("ai-mode-hint");
 const translateLanguageField = document.getElementById("translate-language-field");
@@ -519,8 +524,14 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 }
 
 // 新しい読み上げを始める前に、必ず現在の読み上げを停止します。
+// 読み上げる文章です。AIの結果があるときは、そちらを読み上げます。
+function getTextToRead() {
+  const aiResult = aiResultInput.value.trim();
+  return aiResult || textInput.value;
+}
+
 function startSpeaking() {
-  const text = textInput.value.trim();
+  const text = getTextToRead().trim();
   if (!text) {
     showError("読み上げる文章を入力してください。");
     textInput.focus();
@@ -588,7 +599,7 @@ function clearBeforeClipboardReading() {
   stopSpeaking();
   textInput.value = "";
   updateCharacterCount();
-  forgetOriginalText();
+  clearAiResult();
 }
 
 /**
@@ -676,8 +687,8 @@ function showCopyResult(message, isCopied) {
  * 要約など、読み上げ以外の用途へ文章をそのまま渡せるようにするためのものです。
  * Clipboard APIが使えない環境では、入力欄を選択する昔ながらの方法でコピーします。
  */
-async function copyTextToClipboard() {
-  const text = textInput.value;
+async function copyTextToClipboard(sourceInput = textInput) {
+  const text = sourceInput.value;
 
   if (!text.trim()) {
     showCopyResult("コピーする文章がありません。", false);
@@ -688,9 +699,9 @@ async function copyTextToClipboard() {
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(text);
     } else {
-      textInput.select();
+      sourceInput.select();
       const copied = document.execCommand("copy");
-      textInput.setSelectionRange(text.length, text.length);
+      sourceInput.setSelectionRange(text.length, text.length);
       if (!copied) throw new Error("execCommandでコピーできませんでした。");
     }
 
@@ -1270,10 +1281,10 @@ const AI_MODE_HINTS = {
   summarize: "読み上げる前に、AI（Gemini）で日本語に要約します。文章を外部のAIへ送信し、ご利用に応じて料金がかかります。",
 };
 
-// AIが処理する前の文章です。これがあるあいだは「元の文章に戻す」を表示します。
-let textBeforeAi = "";
-// AIが作った文章です。同じ文章をもう一度AIへ送らないために覚えておきます。
-let aiProcessedText = "";
+// AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
+let aiResultSource = "";
+let aiResultMode = "";
+let aiResultLanguage = "";
 
 function getAiMode() {
   const selected = document.querySelector('input[name="ai-mode"]:checked');
@@ -1322,27 +1333,41 @@ translateLanguage.addEventListener("change", () => {
 
 restoreTranslateLanguage();
 
-// AIで置き換える前の文章を覚えて、「元の文章に戻す」を使えるようにします。
-function rememberOriginalText(text) {
-  textBeforeAi = text;
-  restoreButton.hidden = !text;
+// AIの結果を別の欄に入れることで、元の文章は入力欄にそのまま残します。
+function updateAiResultCount() {
+  aiResultCount.textContent = `${Array.from(aiResultInput.value).length.toLocaleString("ja-JP")}文字`;
 }
 
-function forgetOriginalText() {
-  textBeforeAi = "";
-  aiProcessedText = "";
-  restoreButton.hidden = true;
+function showAiResult(text, mode) {
+  aiResultInput.value = text;
+  aiResultKind.textContent = mode === "translate"
+    ? `${translateLanguage.selectedOptions[0].textContent}に翻訳`
+    : "日本語に要約";
+  aiResultSection.hidden = false;
+  updateAiResultCount();
 }
 
-restoreButton.addEventListener("click", () => {
-  if (!textBeforeAi) return;
+// AIの結果を消して、元の文章を読み上げる状態へ戻します。
+function clearAiResult() {
+  aiResultInput.value = "";
+  aiResultSection.hidden = true;
+  aiResultSource = "";
+  updateAiResultCount();
+}
 
+aiResultInput.addEventListener("input", () => {
+  updateAiResultCount();
+  // 手で直した文章は、そのまま読み上げます（もう一度AIへ送りません）。
+  aiResultSource = textInput.value;
+});
+
+aiResultCopy.addEventListener("click", () => copyTextToClipboard(aiResultInput));
+
+aiResultClear.addEventListener("click", () => {
   if (isReading) stopSpeaking();
-  textInput.value = textBeforeAi;
-  updateCharacterCount();
-  forgetOriginalText();
+  clearAiResult();
   statusText.classList.remove("error");
-  statusText.textContent = "元の文章に戻しました。";
+  statusText.textContent = "AIの結果を消しました。上の文章を読み上げます。";
 });
 
 // Vercel側の /api/ai を経由して、Geminiが処理した文章を受け取ります。
@@ -1383,10 +1408,11 @@ async function requestAiText(mode, text) {
 
 /**
  * 選んだ読み上げモードに合わせて、読み上げる前に文章をAIで処理します。
+ * 結果は「AIの結果」の欄へ入れ、元の文章は入力欄にそのまま残します。
  * 処理できたらtrueを返します。失敗したりパスワードを入れなかった場合はfalseを返します。
  */
 async function applyAiMode(mode) {
-  const originalText = textInput.value;
+  const sourceText = textInput.value;
 
   setAiModeEnabled(false);
   if (isReading) stopSpeaking();
@@ -1394,7 +1420,7 @@ async function applyAiMode(mode) {
   statusText.textContent = mode === "translate" ? "AIで翻訳しています…" : "AIで要約しています…";
 
   try {
-    const processedText = await withPasswordRetry(() => requestAiText(mode, originalText));
+    const processedText = await withPasswordRetry(() => requestAiText(mode, sourceText));
     const cleanedText = sanitizePastedText(processedText);
 
     if (!cleanedText) {
@@ -1402,10 +1428,11 @@ async function applyAiMode(mode) {
       return false;
     }
 
-    rememberOriginalText(originalText);
-    aiProcessedText = cleanedText;
-    textInput.value = cleanedText;
-    updateCharacterCount();
+    showAiResult(cleanedText, mode);
+    // 同じ文章・同じモードのときは、二度AIへ送らないように覚えておきます。
+    aiResultSource = sourceText;
+    aiResultMode = mode;
+    aiResultLanguage = translateLanguage.value;
     return true;
   } catch (error) {
     console.warn("AIの処理に失敗しました。", error);
@@ -1416,6 +1443,14 @@ async function applyAiMode(mode) {
   } finally {
     setAiModeEnabled(true);
   }
+}
+
+// すでに同じ文章を同じ条件で処理しているかどうかを調べます。
+function hasFreshAiResult(mode) {
+  return Boolean(aiResultInput.value.trim())
+    && aiResultSource === textInput.value
+    && aiResultMode === mode
+    && (mode !== "translate" || aiResultLanguage === translateLanguage.value);
 }
 
 // 画像を読み取ったあと、読み上げモードを選んでいれば、続けてAIの処理まで進めます。
@@ -1431,10 +1466,9 @@ async function applyAiModeAfterOcr() {
  */
 async function startReading() {
   const mode = getAiMode();
-  const text = textInput.value.trim();
 
-  // 文章がないときや、すでにAIで処理した文章のときは、そのまま読み上げます。
-  if (mode === "plain" || !text || textInput.value === aiProcessedText) {
+  // 文章がないときや、すでに同じ条件でAIが処理しているときは、そのまま読み上げます。
+  if (mode === "plain" || !textInput.value.trim() || hasFreshAiResult(mode)) {
     startSpeaking();
     return;
   }
@@ -1493,7 +1527,7 @@ rateInput.addEventListener("input", () => {
 
 speakButton.addEventListener("click", startReading);
 clipboardButton.addEventListener("click", readFromClipboard);
-copyButton.addEventListener("click", copyTextToClipboard);
+copyButton.addEventListener("click", () => copyTextToClipboard(textInput));
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
 
