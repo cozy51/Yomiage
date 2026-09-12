@@ -15,6 +15,12 @@ const currentSection = document.getElementById("current-section");
 const currentTitleText = document.getElementById("current-title-text");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
+const ocrZone = document.getElementById("ocr-zone");
+const ocrButton = document.getElementById("ocr-button");
+const ocrFileInput = document.getElementById("ocr-file");
+const ocrProgress = document.getElementById("ocr-progress");
+const ocrProgressFill = document.getElementById("ocr-progress-fill");
+const ocrProgressLabel = document.getElementById("ocr-progress-label");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
@@ -663,6 +669,189 @@ async function readFromClipboard() {
     clipboardButton.innerHTML = '<span aria-hidden="true">📋</span> クリップボードから読み上げ';
   }
 }
+
+// ===== 画像から文字を読み取る（OCR） =====
+// Tesseract.jsをCDNから読み込み、ブラウザの中だけで処理します。サーバーやAPIキーは不要です。
+
+const TESSERACT_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js";
+const OCR_LANGUAGE = "jpn";
+
+// Tesseract.jsが知らせてくる処理段階を、日本語の表示に置き換えます。
+const OCR_STEP_LABELS = {
+  "loading tesseract core": "エンジンを準備中",
+  "initializing tesseract": "エンジンを準備中",
+  "loading language traineddata": "日本語データを取得中",
+  "initializing api": "読み取りの準備中",
+  "recognizing text": "文字を読み取り中",
+};
+
+let tesseractLoader = null;
+let isOcrRunning = false;
+
+// Tesseract.jsは初回の読み取り時にだけ読み込み、ページの表示を遅くしないようにします。
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+
+  if (!tesseractLoader) {
+    tesseractLoader = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = TESSERACT_SCRIPT_URL;
+      script.onload = () => resolve(window.Tesseract);
+      script.onerror = () => {
+        tesseractLoader = null;
+        reject(new Error("Tesseract.jsを読み込めませんでした。"));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  return tesseractLoader;
+}
+
+// ドラッグ・貼り付けされたものから、最初の画像ファイルを取り出します。
+function findImageFile(dataTransfer) {
+  return Array.from(dataTransfer?.files || []).find((file) => file.type.startsWith("image/")) || null;
+}
+
+function hasDraggedFiles(dataTransfer) {
+  return Array.from(dataTransfer?.types || []).includes("Files");
+}
+
+function showOcrProgress(label, ratio) {
+  const percent = Math.round(Math.min(Math.max(ratio, 0), 1) * 100);
+  ocrProgress.hidden = false;
+  ocrProgressFill.style.width = `${percent}%`;
+  ocrProgressLabel.textContent = `${label}… ${percent}%`;
+}
+
+function hideOcrProgress() {
+  ocrProgress.hidden = true;
+  ocrProgressFill.style.width = "0%";
+}
+
+function handleOcrProgress(log) {
+  const label = OCR_STEP_LABELS[log?.status];
+  if (!label) return;
+  showOcrProgress(label, typeof log.progress === "number" ? log.progress : 0);
+}
+
+/**
+ * OCRは日本語の文字と文字の間にも空白を入れることがあるため、それを取り除きます。
+ * 英単語の区切りの空白は残します。
+ */
+function removeSpacesBetweenJapanese(text) {
+  const japanese = "\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}ー々〆、。，．・！？「」『』（）";
+  return text.replace(new RegExp(`([${japanese}])[ \\t\u3000]+(?=[${japanese}])`, "gu"), "$1");
+}
+
+// 読み取った文字を、貼り付け時と同じ整形処理でそのまま使える文章にします。
+function cleanOcrText(text) {
+  return sanitizePastedText(removeSpacesBetweenJapanese(text));
+}
+
+function setOcrBusy(isBusy) {
+  ocrButton.disabled = isBusy;
+  ocrButton.innerHTML = isBusy
+    ? '<span aria-hidden="true">⏳</span> 読み取り中…'
+    : '<span aria-hidden="true">📷</span> 画像から文字を読み取る';
+}
+
+/**
+ * 画像ファイルから文字を読み取り、入力欄へ入れます。
+ * 読み上げは自動で始めず、内容を直してから読み上げられるようにします。
+ */
+async function runOcr(file) {
+  if (isOcrRunning) return;
+
+  if (!file || !file.type.startsWith("image/")) {
+    showError("画像ファイル（PNG・JPEGなど）を選んでください。");
+    return;
+  }
+
+  isOcrRunning = true;
+  // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
+  if (isReading) stopSpeaking();
+  setOcrBusy(true);
+  statusText.classList.remove("error");
+  statusText.textContent = "画像から文字を読み取っています";
+  showOcrProgress("準備中", 0);
+
+  try {
+    const tesseract = await loadTesseract();
+    const result = await tesseract.recognize(file, OCR_LANGUAGE, { logger: handleOcrProgress });
+    const recognizedText = cleanOcrText(result?.data?.text || "");
+
+    if (!recognizedText) {
+      showError("画像から文字を読み取れませんでした。明るく大きく写った画像でお試しください。");
+      return;
+    }
+
+    textInput.value = recognizedText;
+    updateCharacterCount();
+    statusText.textContent = "読み取りが完了しました。内容を直してから読み上げてください。";
+    // 携帯電話ではキーボードが出てしまうため、入力欄への移動はパソコンだけにします。
+    if (!isMobileBrowser) textInput.focus();
+  } catch (error) {
+    console.warn("画像の読み取りに失敗しました。", error);
+    showError("画像の文字を読み取れませんでした。通信状況を確認して、もう一度お試しください。");
+  } finally {
+    isOcrRunning = false;
+    hideOcrProgress();
+    setOcrBusy(false);
+  }
+}
+
+ocrButton.addEventListener("click", () => ocrFileInput.click());
+
+ocrFileInput.addEventListener("change", () => {
+  const file = ocrFileInput.files?.[0] || null;
+  // 同じ画像を続けて選び直せるように、選択状態を消してから処理します。
+  ocrFileInput.value = "";
+  if (file) runOcr(file);
+});
+
+// 画像をページのどこへドロップしても読み取ります。文字のドラッグは今までどおりです。
+document.addEventListener("dragover", (event) => {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  ocrZone.classList.add("is-dragover");
+});
+
+document.addEventListener("dragleave", (event) => {
+  // ページの外へ出たときだけ、受け取れる表示を戻します。
+  if (event.relatedTarget) return;
+  ocrZone.classList.remove("is-dragover");
+});
+
+document.addEventListener("drop", (event) => {
+  if (!hasDraggedFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  ocrZone.classList.remove("is-dragover");
+
+  const file = findImageFile(event.dataTransfer);
+  if (!file) {
+    showError("画像ファイル（PNG・JPEGなど）をドロップしてください。");
+    return;
+  }
+
+  runOcr(file);
+});
+
+/**
+ * クリップボードの画像をCtrl+Vで読み取ります。
+ * 文章が含まれるときは何もせず、これまでどおりの貼り付け動作にします。
+ * 入力欄の貼り付け処理より先に判定するため、キャプチャ段階で受け取ります。
+ */
+document.addEventListener("paste", (event) => {
+  if ((event.clipboardData?.getData("text/plain") || "").trim()) return;
+
+  const file = findImageFile(event.clipboardData);
+  if (!file) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  runOcr(file);
+}, true);
 
 textInput.addEventListener("input", () => {
   updateCharacterCount();
