@@ -696,8 +696,8 @@ const SENTENCE_END_PATTERN = /[。．.！!？?：:；;」』】〉》〕］）)]
 // 大文字や数字で始まる行は、一覧の項目や見出しであることが多いため続きとみなしません。
 const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．」』）)]/u;
 const LIST_START_PATTERN = /^(?:[-–—*+•・●○◆■□▲▼※＊]|\d{1,3}[.．)）、]|[(（]\d{1,3}[)）])/;
+// 見出しのような短い行は、折り返しではないとみなして改行を残します。
 const WRAPPED_LINE_MIN_LENGTH = 12;
-const WRAPPED_LINE_RATIO = 0.7;
 
 let tesseractLoader = null;
 let isOcrRunning = false;
@@ -789,21 +789,20 @@ function removeSpacesBetweenJapanese(text) {
 
 /**
  * OCRは画面の折り返し位置にも改行を入れるため、そのままでは語の途中で読み上げが切れます。
- * 「文の終わりではない長い行」に続きの行がつながっているとみなし、その改行を取り除きます。
+ * 文の終わりの記号で終わっていない行には続きの行がつながっているとみなし、その改行を取り除きます。
  * 箇条書き・一覧の項目・見出しのような行の改行は、段落の区切りとして残します。
  */
 function joinWrappedLines(text) {
-  const lines = text.split("\n").map((line) => line.trim());
-  const longestLength = lines.reduce((longest, line) => Math.max(longest, Array.from(line).length), 0);
-  const wrappedMinLength = Math.max(WRAPPED_LINE_MIN_LENGTH, longestLength * WRAPPED_LINE_RATIO);
+  // 空行はこのあとの整形でどのみち取り除かれます。
+  // 先に落としておかないと、文の途中に空行が入ったときに前後がつながらなくなります。
+  const lines = text.split("\n").map((line) => line.trim()).filter((line) => line !== "");
   const joinedLines = [];
 
   lines.forEach((line) => {
     // つなぎ先は、すでにつないだあとの行です。折り返しが続く限り1行にまとめます。
     const previousLine = joinedLines[joinedLines.length - 1] ?? "";
     const continuesPreviousLine = joinedLines.length > 0
-      && line !== ""
-      && Array.from(previousLine).length >= wrappedMinLength
+      && Array.from(previousLine).length >= WRAPPED_LINE_MIN_LENGTH
       && !SENTENCE_END_PATTERN.test(previousLine)
       && CONTINUATION_START_PATTERN.test(line)
       && !LIST_START_PATTERN.test(line);
