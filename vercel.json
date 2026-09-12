@@ -2,6 +2,9 @@
   "functions": {
     "api/ocr.js": {
       "maxDuration": 30
+    },
+    "api/ai.js": {
+      "maxDuration": 30
     }
   }
 }
