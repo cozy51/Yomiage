@@ -13,9 +13,19 @@
  */
 
 // 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
-const GEMINI_MODEL = "gemini-2.5-flash-lite";
-const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
+// （コードを変えずに、別のモデルをすぐ試せるようにするためです。）
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 const GEMINI_TIMEOUT_MS = 25000;
+const GEMINI_MODEL_LIST_TIMEOUT_MS = 8000;
+
+// 環境変数の値が使えない形のときは、既定のモデル名に戻します。
+function getGeminiModel() {
+  const model = (process.env.GEMINI_MODEL || "").trim();
+  return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_MODEL;
+}
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -68,6 +78,32 @@ async function readErrorBody(geminiResponse) {
     return (await geminiResponse.text()).slice(0, 500);
   } catch (error) {
     return "";
+  }
+}
+
+/**
+ * モデル名が使えなかったときに、そのAPIキーで使えるモデル名を問い合わせます。
+ * 直しかたをそのまま案内できるようにするためのもので、失敗しても空の一覧を返します。
+ * モデル名は秘密の情報ではないため、案内へ含めても問題ありません。
+ */
+async function listAvailableModels(apiKey) {
+  try {
+    const modelsResponse = await fetch(`${GEMINI_API_BASE}/models?pageSize=100`, {
+      headers: { "x-goog-api-key": apiKey },
+      signal: AbortSignal.timeout(GEMINI_MODEL_LIST_TIMEOUT_MS),
+    });
+    if (!modelsResponse.ok) return [];
+
+    const data = await modelsResponse.json();
+    return (data?.models || [])
+      .filter((model) => (model?.supportedGenerationMethods || []).includes("generateContent"))
+      .map((model) => String(model?.name || "").replace(/^models\//, ""))
+      .filter((name) => name.startsWith("gemini"))
+      // 画像の読み取りには軽いモデルで十分なため、flash系を先に並べます。
+      .sort((a, b) => (b.includes("flash") ? 1 : 0) - (a.includes("flash") ? 1 : 0));
+  } catch (error) {
+    console.error("モデル一覧を取得できませんでした。", error?.name || error);
+    return [];
   }
 }
 
@@ -135,7 +171,8 @@ module.exports = async function handler(request, response) {
   }
 
   try {
-    const geminiResponse = await fetch(GEMINI_API_ENDPOINT, {
+    const model = getGeminiModel();
+    const geminiResponse = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -158,6 +195,20 @@ module.exports = async function handler(request, response) {
     if (!geminiResponse.ok) {
       // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
       console.error("Gemini APIがエラーを返しました。", geminiResponse.status, await readErrorBody(geminiResponse));
+
+      // モデル名が原因のときは、使えるモデル名をそのまま案内します。
+      if (geminiResponse.status === 404) {
+        const availableModels = await listAvailableModels(apiKey);
+        console.error("使用したモデル名:", model, "/ 利用できるモデル:", availableModels.join(", ") || "（取得できませんでした）");
+        const hint = availableModels.length
+          ? `利用できるモデルの例: ${availableModels.slice(0, 3).join(" / ")}`
+          : "";
+        return response.status(502).json({
+          message: hint ? `${MESSAGES.invalidModel} ${hint}` : MESSAGES.invalidModel,
+          code: "AI-G404",
+        });
+      }
+
       return response.status(502).json({
         message: describeGeminiError(geminiResponse.status),
         code: `AI-G${geminiResponse.status}`,
