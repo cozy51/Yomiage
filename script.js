@@ -647,7 +647,14 @@ async function readFromClipboard() {
   clipboardButton.innerHTML = '<span aria-hidden="true">…</span> 読み込み中';
 
   try {
-    const clipboardText = await navigator.clipboard.readText();
+    const { text: clipboardText, image: clipboardImage } = await readClipboardContent();
+
+    // 画像がコピーされている場合は、文字を読み取ってからそのまま読み上げます。
+    if (clipboardImage) {
+      await runOcr(clipboardImage, true);
+      return;
+    }
+
     const sanitizedText = sanitizePastedText(clipboardText);
     if (!sanitizedText.trim()) {
       showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
@@ -713,6 +720,39 @@ function findImageFile(dataTransfer) {
   return Array.from(dataTransfer?.files || []).find((file) => file.type.startsWith("image/")) || null;
 }
 
+/**
+ * クリップボードの内容を文章と画像のどちらでも受け取れるように読み取ります。
+ * ブラウザによっては操作の直後しか読み取れないため、読み取りは1回にまとめます。
+ * 文章も画像も入っている場合は、これまでどおり文章を優先します。
+ * 画像に対応していないブラウザや読み取りに失敗した場合は、文章だけを読み取ります。
+ */
+async function readClipboardContent() {
+  if (typeof navigator.clipboard?.read === "function") {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      let imageFile = null;
+
+      for (const item of clipboardItems) {
+        if (item.types.includes("text/plain")) {
+          return { text: await (await item.getType("text/plain")).text(), image: null };
+        }
+
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (imageType && !imageFile) {
+          const blob = await item.getType(imageType);
+          imageFile = new File([blob], "clipboard-image", { type: blob.type });
+        }
+      }
+
+      return { text: "", image: imageFile };
+    } catch (error) {
+      console.warn("クリップボードの画像を確認できませんでした。", error);
+    }
+  }
+
+  return { text: await navigator.clipboard.readText(), image: null };
+}
+
 function hasDraggedFiles(dataTransfer) {
   return Array.from(dataTransfer?.types || []).includes("Files");
 }
@@ -758,9 +798,10 @@ function setOcrBusy(isBusy) {
 
 /**
  * 画像ファイルから文字を読み取り、入力欄へ入れます。
- * 読み上げは自動で始めず、内容を直してから読み上げられるようにします。
+ * 通常は読み上げを自動で始めず、内容を直してから読み上げられるようにします。
+ * speakAfterOcrがtrueのときだけ、読み取りに続けてそのまま読み上げます。
  */
-async function runOcr(file) {
+async function runOcr(file, speakAfterOcr = false) {
   if (isOcrRunning) return;
 
   if (!file || !file.type.startsWith("image/")) {
@@ -788,6 +829,12 @@ async function runOcr(file) {
 
     textInput.value = recognizedText;
     updateCharacterCount();
+
+    if (speakAfterOcr) {
+      startSpeaking();
+      return;
+    }
+
     statusText.textContent = "読み取りが完了しました。内容を直してから読み上げてください。";
     // 携帯電話ではキーボードが出てしまうため、入力欄への移動はパソコンだけにします。
     if (!isMobileBrowser) textInput.focus();
