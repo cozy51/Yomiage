@@ -12,6 +12,12 @@
  * 画像は読み取りのあいだだけ扱い、サーバーには保存しません。
  */
 
+const { isAuthConfigured, isAuthenticated, checkRateLimit, getClientKey } = require("./_auth");
+
+// 読み取りの呼び出しすぎを防ぐための上限です（少人数での利用を想定しています）。
+const OCR_REQUEST_LIMIT = 20;
+const OCR_WINDOW_MS = 10 * 60 * 1000;
+
 // 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
 // Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
 // （コードを変えずに、別のモデルをすぐ試せるようにするためです。）
@@ -72,6 +78,9 @@ const MESSAGES = {
   timeout: "AI OCRが時間内に終わりませんでした。通常OCRをお試しください。",
   failed: "AI OCRに失敗しました。通常OCRをお試しください。",
   empty: "AIが文字を読み取れませんでした。通常OCRをお試しください。",
+  notConfigured: "AI OCRを利用できません。パスワードの設定を確認してください。",
+  needPassword: "AI OCRを利用するには、パスワードの入力が必要です。",
+  tooManyRequests: "AI OCRの利用が続いています。しばらくしてから再度お試しください。",
 };
 
 // Gemini側の説明をログへ残すために読み取ります。読み取れない場合は空にします。
@@ -147,6 +156,21 @@ module.exports = async function handler(request, response) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
     return response.status(405).json({ message: MESSAGES.methodNotAllowed, code: "AI-405" });
+  }
+
+  // パスワードが未設定のときは、誰でも使える状態にしないため受け付けません。
+  if (!isAuthConfigured()) {
+    console.error("APP_PASSWORD_HASHが設定されていません。Vercelの環境変数を確認してください。");
+    return response.status(503).json({ message: MESSAGES.notConfigured, code: "AI-NOAUTH" });
+  }
+
+  // 料金がかかる処理のため、パスワードで認証した人だけが使えるようにします。
+  if (!isAuthenticated(request)) {
+    return response.status(401).json({ message: MESSAGES.needPassword, code: "AI-401" });
+  }
+
+  if (!checkRateLimit(`ocr:${getClientKey(request)}`, OCR_REQUEST_LIMIT, OCR_WINDOW_MS)) {
+    return response.status(429).json({ message: MESSAGES.tooManyRequests, code: "AI-429" });
   }
 
   // APIキーが未設定でも、アプリ全体は動き続けます（通常OCRはブラウザの中だけで動きます）。

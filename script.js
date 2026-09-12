@@ -21,6 +21,12 @@ const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
 const ocrModeInputs = document.querySelectorAll('input[name="ocr-mode"]');
 const ocrModeHint = document.getElementById("ocr-mode-hint");
+const passwordDialog = document.getElementById("password-dialog");
+const passwordForm = document.getElementById("password-form");
+const passwordInput = document.getElementById("password-input");
+const passwordError = document.getElementById("password-error");
+const passwordSubmit = document.getElementById("password-submit");
+const passwordCancel = document.getElementById("password-cancel");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
@@ -921,7 +927,7 @@ async function runOcr(file, speakAfterOcr = false) {
   statusText.textContent = useAi ? "AIで文字を読み取っています…" : "画像から文字を読み取っています";
 
   try {
-    const rawText = useAi ? await recognizeWithGemini(file) : await recognizeWithTesseract(file);
+    const rawText = useAi ? await recognizeWithGeminiAndLogin(file) : await recognizeWithTesseract(file);
     const recognizedText = cleanOcrText(rawText);
 
     if (!recognizedText) {
@@ -1029,6 +1035,83 @@ ocrModeInputs.forEach((input) => {
 
 restoreOcrMode();
 
+// ===== AI OCRのパスワード認証 =====
+// 料金が発生するAI OCRだけを守ります。読み上げと通常OCRは、これまでどおり認証なしで使えます。
+// パスワードはサーバー側（/api/login）だけで確かめ、ブラウザには保存しません。
+// 認証できると、書き換えられない引換券がHttpOnly Cookieで渡され、24時間ほど有効です。
+
+const LOGIN_ENDPOINT = "/api/login";
+const PASSWORD_SUBMIT_LABEL = "認証して利用";
+
+let passwordResolve = null;
+
+/**
+ * パスワードの入力を求め、認証できたかどうかを返します。
+ * 入力されたパスワードは送信したあとに消し、画面にも保存にも残しません。
+ */
+function requestPassword() {
+  return new Promise((resolve) => {
+    passwordResolve = resolve;
+    passwordInput.value = "";
+    passwordError.hidden = true;
+    passwordDialog.showModal();
+    passwordInput.focus();
+  });
+}
+
+function closePasswordDialog(isAuthenticated) {
+  const resolve = passwordResolve;
+  passwordResolve = null;
+  passwordInput.value = "";
+  passwordDialog.close();
+  if (resolve) resolve(isAuthenticated);
+}
+
+passwordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const password = passwordInput.value;
+  if (!password) return;
+
+  passwordSubmit.disabled = true;
+  passwordSubmit.textContent = "確認中…";
+
+  try {
+    const response = await fetch(LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ password }),
+    });
+
+    if (response.ok) {
+      closePasswordDialog(true);
+      return;
+    }
+
+    const result = await response.json().catch(() => null);
+    passwordError.textContent = result?.message || "パスワードを確認できませんでした。";
+    passwordError.hidden = false;
+    passwordInput.value = "";
+    passwordInput.focus();
+  } catch (error) {
+    console.warn("パスワードを確認できませんでした。", error);
+    passwordError.textContent = "パスワードを確認できませんでした。通信状況を確認してください。";
+    passwordError.hidden = false;
+  } finally {
+    passwordSubmit.disabled = false;
+    passwordSubmit.textContent = PASSWORD_SUBMIT_LABEL;
+  }
+});
+
+passwordCancel.addEventListener("click", () => closePasswordDialog(false));
+
+// Escキーで閉じたときも、キャンセルと同じ扱いにします。
+passwordDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closePasswordDialog(false);
+});
+
 // ===== AIで高精度OCR（Gemini API） =====
 // Gemini APIのキーをブラウザへ置くと誰にでも読み取られてしまうため、
 // ブラウザからは直接呼ばず、Vercel側の /api/ocr を経由して呼び出します。
@@ -1097,6 +1180,25 @@ async function prepareImageForAiOcr(file) {
   };
 }
 
+/**
+ * AI OCRを実行します。パスワードが必要（401）だったときは入力を求め、
+ * 認証できたらそのまま同じ画像でもう一度読み取ります。
+ */
+async function recognizeWithGeminiAndLogin(file) {
+  try {
+    return await recognizeWithGemini(file);
+  } catch (error) {
+    if (error?.ocrCode !== "AI-401") throw error;
+
+    const isAuthenticated = await requestPassword();
+    if (!isAuthenticated) {
+      throw createOcrError("AI OCRの利用には、パスワードの入力が必要です。", "AI-401");
+    }
+
+    return recognizeWithGemini(file);
+  }
+}
+
 // Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
 async function recognizeWithGemini(file) {
   const controller = new AbortController();
@@ -1107,6 +1209,8 @@ async function recognizeWithGemini(file) {
     const response = await fetch(AI_OCR_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // 認証の引換券（Cookie）を一緒に送ります。
+      credentials: "same-origin",
       body: JSON.stringify(payload),
       signal: controller.signal,
     });

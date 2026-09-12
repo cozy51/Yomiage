@@ -99,6 +99,19 @@
       <p class="current-hint">タップまたはクリックで一時停止 / 再生</p>
     </section>
 
+    <dialog id="password-dialog" class="password-dialog" aria-labelledby="password-title">
+      <form id="password-form">
+        <h2 id="password-title">AI高精度OCRを利用するには<br>パスワードを入力してください</h2>
+        <label class="password-label" for="password-input">パスワード</label>
+        <input id="password-input" type="password" autocomplete="current-password" required>
+        <p id="password-error" class="password-error" role="alert" hidden></p>
+        <div class="password-actions">
+          <button id="password-cancel" class="button button-secondary" type="button">キャンセル</button>
+          <button id="password-submit" class="button button-primary" type="submit">認証して利用</button>
+        </div>
+      </form>
+    </dialog>
+
     <noscript>このアプリを使用するにはJavaScriptを有効にしてください。</noscript>
   </main>
 

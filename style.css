@@ -507,6 +507,68 @@ input[type="range"] {
   background: #f59e0b;
 }
 
+/* AI OCRを使うときだけ表示する、パスワードの入力です。 */
+.password-dialog {
+  width: min(400px, calc(100% - 32px));
+  padding: clamp(20px, 5vw, 28px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
+}
+
+.password-dialog::backdrop {
+  background: rgb(15 23 42 / 45%);
+}
+
+.password-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.password-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.password-dialog input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  background: #fbfdff;
+  color: var(--text);
+}
+
+.password-dialog input:focus {
+  border-color: var(--primary);
+}
+
+.password-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.password-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.password-actions .button {
+  min-width: 116px;
+}
+
 [hidden] {
   display: none !important;
 }
