@@ -692,6 +692,16 @@ const OCR_STEP_LABELS = {
   "recognizing text": "文字を読み取り中",
 };
 
+// 画面の折り返しで入った改行を、続きの文としてつなぎ直すための設定です。
+// 文の終わりの記号で終わる行のあとと、次の行が続きに見えない場合は、改行をそのまま残します。
+const SENTENCE_END_PATTERN = /[。．.！!？?：:；;」』】〉》〕］）)]$/;
+// 行のはじめが日本語・小文字の英字・閉じ括弧・句読点なら、前の行からの続きとみなします。
+// 大文字や数字で始まる行は、一覧の項目や見出しであることが多いため続きとみなしません。
+const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．」』）)]/u;
+const LIST_START_PATTERN = /^(?:[-–—*+•・●○◆■□▲▼※＊]|\d{1,3}[.．)）、]|[(（]\d{1,3}[)）])/;
+const WRAPPED_LINE_MIN_LENGTH = 12;
+const WRAPPED_LINE_RATIO = 0.7;
+
 let tesseractLoader = null;
 let isOcrRunning = false;
 
@@ -784,9 +794,43 @@ function removeSpacesBetweenJapanese(text) {
   return text.replace(new RegExp(`([${japanese}])[ \\t\u3000]+(?=[${japanese}])`, "gu"), "$1");
 }
 
+/**
+ * OCRは画面の折り返し位置にも改行を入れるため、そのままでは語の途中で読み上げが切れます。
+ * 「文の終わりではない長い行」に続きの行がつながっているとみなし、その改行を取り除きます。
+ * 箇条書き・一覧の項目・見出しのような行の改行は、段落の区切りとして残します。
+ */
+function joinWrappedLines(text) {
+  const lines = text.split("\n").map((line) => line.trim());
+  const longestLength = lines.reduce((longest, line) => Math.max(longest, Array.from(line).length), 0);
+  const wrappedMinLength = Math.max(WRAPPED_LINE_MIN_LENGTH, longestLength * WRAPPED_LINE_RATIO);
+  const joinedLines = [];
+
+  lines.forEach((line) => {
+    // つなぎ先は、すでにつないだあとの行です。折り返しが続く限り1行にまとめます。
+    const previousLine = joinedLines[joinedLines.length - 1] ?? "";
+    const continuesPreviousLine = joinedLines.length > 0
+      && line !== ""
+      && Array.from(previousLine).length >= wrappedMinLength
+      && !SENTENCE_END_PATTERN.test(previousLine)
+      && CONTINUATION_START_PATTERN.test(line)
+      && !LIST_START_PATTERN.test(line);
+
+    if (!continuesPreviousLine) {
+      joinedLines.push(line);
+      return;
+    }
+
+    // 英単語どうしは空白を入れ、日本語はそのままつなぎます。
+    const needsSpace = /[A-Za-z0-9]$/.test(previousLine) && /^[a-z0-9]/.test(line);
+    joinedLines[joinedLines.length - 1] = previousLine + (needsSpace ? " " : "") + line;
+  });
+
+  return joinedLines.join("\n");
+}
+
 // 読み取った文字を、貼り付け時と同じ整形処理でそのまま使える文章にします。
 function cleanOcrText(text) {
-  return sanitizePastedText(removeSpacesBetweenJapanese(text));
+  return sanitizePastedText(joinWrappedLines(removeSpacesBetweenJapanese(text)));
 }
 
 function setOcrBusy(isBusy) {
