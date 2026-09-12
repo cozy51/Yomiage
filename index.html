@@ -22,7 +22,12 @@
 
     <section class="card" aria-labelledby="input-label">
       <div class="input-heading">
-        <label id="input-label" for="text-input">読み上げる文章</label>
+        <div class="input-heading-main">
+          <label id="input-label" for="text-input">読み上げる文章</label>
+          <button id="copy-button" class="copy-button" type="button">
+            <span aria-hidden="true">📄</span> コピー
+          </button>
+        </div>
         <span id="character-count" aria-live="polite">0文字</span>
       </div>
       <textarea
