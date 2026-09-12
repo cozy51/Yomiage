@@ -78,6 +78,14 @@ h1 {
   box-shadow: 0 12px 38px rgb(30 41 59 / 8%);
 }
 
+/* いちばん使うボタンなので、画面を下へ動かさずに押せるようカードの先頭に置きます。 */
+.clipboard-button {
+  width: 100%;
+  min-height: 56px;
+  margin-bottom: 20px;
+  font-size: 1.05rem;
+}
+
 .input-heading,
 .speed-label,
 .range-labels {

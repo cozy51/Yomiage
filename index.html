@@ -21,6 +21,10 @@
     </header>
 
     <section class="card" aria-labelledby="input-label">
+      <button id="clipboard-button" class="button button-primary clipboard-button" type="button">
+        <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
+      </button>
+
       <div class="input-heading">
         <div class="input-heading-main">
           <label id="input-label" for="text-input">読み上げる文章</label>
@@ -70,9 +74,6 @@
       </div>
 
       <div class="controls">
-        <button id="clipboard-button" class="button button-primary" type="button">
-          <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
-        </button>
         <button id="speak-button" class="button button-clipboard" type="button">
           <span aria-hidden="true">▶</span> 読み上げ
         </button>
