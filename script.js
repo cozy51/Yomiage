@@ -19,7 +19,6 @@ const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
-const aiOcrSection = document.getElementById("ai-ocr");
 const aiOcrButton = document.getElementById("ai-ocr-button");
 
 const synthesis = window.speechSynthesis;
@@ -962,13 +961,14 @@ let aiOcrImage = null;
 let isAiOcrRunning = false;
 
 // 読み取った画像を覚えておき、同じ画像をAI OCRでも使えるようにします。
+// 画像がないときはボタンを押せない状態にし、機能があること自体は分かるようにします。
 function setAiOcrImage(file) {
   aiOcrImage = file;
-  aiOcrSection.hidden = !file;
+  aiOcrButton.disabled = !file;
 }
 
 function setAiOcrBusy(isBusy) {
-  aiOcrButton.disabled = isBusy;
+  aiOcrButton.disabled = isBusy || !aiOcrImage;
   aiOcrButton.setAttribute("aria-busy", String(isBusy));
   aiOcrButton.innerHTML = isBusy ? AI_OCR_RUNNING_LABEL : AI_OCR_BUTTON_LABEL;
 }
