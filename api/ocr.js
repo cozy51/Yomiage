@@ -15,9 +15,11 @@
 // 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
 // Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
 // （コードを変えずに、別のモデルをすぐ試せるようにするためです。）
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
+// 音声や画像を作るためのモデルは、文章の読み取りには使えないため候補から除きます。
+const UNUSABLE_MODEL_PATTERN = /tts|image|audio|live|embedding/;
 const GEMINI_TIMEOUT_MS = 25000;
 const GEMINI_MODEL_LIST_TIMEOUT_MS = 8000;
 
@@ -98,7 +100,7 @@ async function listAvailableModels(apiKey) {
     return (data?.models || [])
       .filter((model) => (model?.supportedGenerationMethods || []).includes("generateContent"))
       .map((model) => String(model?.name || "").replace(/^models\//, ""))
-      .filter((name) => name.startsWith("gemini"))
+      .filter((name) => name.startsWith("gemini") && !UNUSABLE_MODEL_PATTERN.test(name))
       // 画像の読み取りには軽いモデルで十分なため、flash系を先に並べます。
       .sort((a, b) => (b.includes("flash") ? 1 : 0) - (a.includes("flash") ? 1 : 0));
   } catch (error) {
