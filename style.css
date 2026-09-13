@@ -600,14 +600,14 @@ input[type="range"] {
   font-size: 1rem;
 }
 
-/* 見出しの右側に、どの処理方法で読み上げているかを出します。 */
+/* 見出しのすぐ右に、どの処理方法で読み上げているかを出します。
+   行を増やさずに目立たせたいため、青く塗って見出しと同じくらいの大きさにします。 */
 .current-mode {
-  margin-left: auto;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: var(--primary-dark);
-  font-size: .78rem;
+  background: var(--primary);
+  color: #fff;
+  font-size: .95rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -639,8 +639,8 @@ input[type="range"] {
 }
 
 .current-card.is-paused .current-mode {
-  background: #fef3c7;
-  color: #92400e;
+  background: #d97706;
+  color: #fff;
 }
 
 .current-card.is-paused .speaking-dot {

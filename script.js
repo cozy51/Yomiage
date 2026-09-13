@@ -554,6 +554,8 @@ function startSpeaking() {
   isPaused = false;
   // どの処理方法で読み上げているかを、読み上げ中の見出しの右側へ表示します。
   currentMode.textContent = getProcessModeLabel();
+  currentMode.title = getProcessModeFullLabel();
+  currentMode.setAttribute("aria-label", `処理方法: ${getProcessModeFullLabel()}`);
   updateControls("speaking");
   startPlaybackTimers();
   speakCurrentChunk(sessionId);
@@ -1237,8 +1239,16 @@ function getProcessMode() {
 }
 
 // 画像をGeminiで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
-// 選んでいる処理方法の名前です。選択肢の見出しをそのまま使うため、名前の変更はHTMLだけで済みます。
+// 選んでいる処理方法の名前です。表示する言葉はHTMLの選択肢から取るため、変更は1か所で済みます。
+// 読み上げ中の見出しへ出すのは、行を増やさずに済む短い名前（一番上の簡易選択の言葉）です。
 function getProcessModeLabel() {
+  const selected = document.querySelector('input[name="quick-mode"]:checked');
+  const text = selected?.closest(".quick-option")?.querySelector(".quick-option-text");
+  return text ? text.textContent.trim() : "";
+}
+
+// マウスを重ねたときや読み上げソフト向けの、省略しない名前です。
+function getProcessModeFullLabel() {
   const selected = document.querySelector('input[name="process-mode"]:checked');
   const title = selected?.closest(".process-option")?.querySelector(".process-option-title");
   return title ? title.textContent.trim() : "";
