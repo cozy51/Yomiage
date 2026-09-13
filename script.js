@@ -1225,7 +1225,7 @@ async function recognizeWithGemini(file) {
 const AI_TEXT_ENDPOINT = "/api/ai";
 const AI_TEXT_TIMEOUT_MS = 45000;
 const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
-const PROCESS_MODES = ["plain", "ai-ocr", "translate", "summarize"];
+const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "translate"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
