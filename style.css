@@ -600,16 +600,28 @@ input[type="range"] {
   font-size: 1rem;
 }
 
-/* 見出しのすぐ右に、どの処理方法で読み上げているかを出します。
-   行を増やさずに目立たせたいため、青く塗って見出しと同じくらいの大きさにします。 */
-.current-mode {
+/* 見出しのすぐ右に、実際に何をして読み上げているかを出します。
+   入力が文字か画像か、AIを使ったかどうかを、色でも見分けられるようにします。 */
+.current-chip {
   padding: 4px 12px;
   border-radius: 999px;
-  background: var(--primary);
-  color: #fff;
-  font-size: .95rem;
+  background: #dbeafe;
+  color: var(--primary-dark);
+  font-size: .88rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* AIを使っていないときは、目立たない灰色にします。 */
+.current-ai {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+/* AIを使った（料金がかかった）ときだけ、はっきり分かる色にします。 */
+.current-ai.is-ai {
+  background: #7c3aed;
+  color: #fff;
 }
 
 .current-mode:empty {
@@ -638,7 +650,17 @@ input[type="range"] {
   color: #92400e;
 }
 
-.current-card.is-paused .current-mode {
+.current-card.is-paused .current-chip {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.current-card.is-paused .current-ai {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.current-card.is-paused .current-ai.is-ai {
   background: #d97706;
   color: #fff;
 }
