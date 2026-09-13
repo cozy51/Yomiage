@@ -21,6 +21,25 @@
     </header>
 
     <section class="card" aria-labelledby="input-label">
+      <fieldset class="quick-mode" aria-label="処理方法（簡易選択）">
+        <label class="quick-option">
+          <input type="radio" name="quick-mode" value="plain" checked>
+          <span class="quick-option-text">🔊 そのまま</span>
+        </label>
+        <label class="quick-option">
+          <input type="radio" name="quick-mode" value="ai-ocr">
+          <span class="quick-option-text">🔍 高精度</span>
+        </label>
+        <label class="quick-option">
+          <input type="radio" name="quick-mode" value="translate">
+          <span class="quick-option-text">🌐 翻訳</span>
+        </label>
+        <label class="quick-option">
+          <input type="radio" name="quick-mode" value="summarize">
+          <span class="quick-option-text">📝 要約</span>
+        </label>
+      </fieldset>
+
       <button id="clipboard-button" class="button button-primary clipboard-button" type="button">
         <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
       </button>

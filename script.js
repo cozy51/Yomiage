@@ -21,6 +21,7 @@ const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
 const processModeInputs = document.querySelectorAll('input[name="process-mode"]');
+const quickModeInputs = document.querySelectorAll('input[name="quick-mode"]');
 const aiResultSection = document.getElementById("ai-result");
 const aiResultInput = document.getElementById("ai-result-input");
 const aiResultKind = document.getElementById("ai-result-kind");
@@ -1255,10 +1256,20 @@ function getTextAiMode() {
 
 // 処理中は、途中で方法を変えられないようにします。
 function setProcessModeEnabled(isEnabled) {
-  processModeInputs.forEach((input) => {
+  [...processModeInputs, ...quickModeInputs].forEach((input) => {
     input.disabled = !isEnabled;
   });
   translateLanguage.disabled = !isEnabled;
+}
+
+// 一番上の簡易選択と、下の「処理方法」は、どちらを操作しても同じ内容になるようにします。
+function syncProcessModeInputs(mode) {
+  processModeInputs.forEach((input) => {
+    input.checked = input.value === mode;
+  });
+  quickModeInputs.forEach((input) => {
+    input.checked = input.value === mode;
+  });
 }
 
 // 翻訳先の言語は「翻訳して読み上げ」を選んでいるときだけ表示します。
@@ -1280,8 +1291,7 @@ function saveProcessSettings() {
 function restoreProcessSettings() {
   try {
     const savedMode = localStorage.getItem(PROCESS_MODE_STORAGE_KEY);
-    const savedInput = savedMode && document.querySelector(`input[name="process-mode"][value="${savedMode}"]`);
-    if (savedInput) savedInput.checked = true;
+    if (savedMode && PROCESS_MODES.includes(savedMode)) syncProcessModeInputs(savedMode);
 
     const savedLanguage = localStorage.getItem(TRANSLATE_LANGUAGE_STORAGE_KEY);
     if (savedLanguage && [...translateLanguage.options].some((option) => option.value === savedLanguage)) {
@@ -1294,8 +1304,9 @@ function restoreProcessSettings() {
   updateTranslateLanguageField();
 }
 
-processModeInputs.forEach((input) => {
+[...processModeInputs, ...quickModeInputs].forEach((input) => {
   input.addEventListener("change", () => {
+    syncProcessModeInputs(input.value);
     updateTranslateLanguageField();
     saveProcessSettings();
   });
