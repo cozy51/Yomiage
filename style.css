@@ -515,11 +515,28 @@ input[type="range"] {
 
 .current-card h2 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 9px;
+  gap: 6px 9px;
   margin: 0 0 10px;
   color: var(--primary-dark);
   font-size: 1rem;
+}
+
+/* 見出しの右側に、どの処理方法で読み上げているかを出します。 */
+.current-mode {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: var(--primary-dark);
+  font-size: .78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.current-mode:empty {
+  display: none;
 }
 
 .speaking-dot {
@@ -541,6 +558,11 @@ input[type="range"] {
 }
 
 .current-card.is-paused h2 {
+  color: #92400e;
+}
+
+.current-card.is-paused .current-mode {
+  background: #fef3c7;
   color: #92400e;
 }
 

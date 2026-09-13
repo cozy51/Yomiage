@@ -14,6 +14,7 @@ const stopButton = document.getElementById("stop-button");
 const statusText = document.getElementById("status");
 const currentSection = document.getElementById("current-section");
 const currentTitleText = document.getElementById("current-title-text");
+const currentMode = document.getElementById("current-mode");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
@@ -531,7 +532,7 @@ function getTextToRead() {
 function startSpeaking() {
   const text = getTextToRead().trim();
   if (!text) {
-    showError("読み上げる文章を入力してください。");
+    showError("入力テキストを入力してください。");
     textInput.focus();
     return;
   }
@@ -550,6 +551,8 @@ function startSpeaking() {
   hasSpokenAnything = false;
   isReading = true;
   isPaused = false;
+  // どの処理方法で読み上げているかを、読み上げ中の見出しの右側へ表示します。
+  currentMode.textContent = getProcessModeLabel();
   updateControls("speaking");
   startPlaybackTimers();
   speakCurrentChunk(sessionId);
@@ -1233,6 +1236,13 @@ function getProcessMode() {
 }
 
 // 画像をGeminiで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
+// 選んでいる処理方法の名前です。選択肢の見出しをそのまま使うため、名前の変更はHTMLだけで済みます。
+function getProcessModeLabel() {
+  const selected = document.querySelector('input[name="process-mode"]:checked');
+  const title = selected?.closest(".process-option")?.querySelector(".process-option-title");
+  return title ? title.textContent.trim() : "";
+}
+
 function usesAiOcr() {
   return getProcessMode() === "ai-ocr";
 }

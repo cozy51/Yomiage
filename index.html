@@ -27,7 +27,7 @@
 
       <div class="input-heading">
         <div class="input-heading-main">
-          <label id="input-label" for="text-input">読み上げる文章</label>
+          <label id="input-label" for="text-input">入力テキスト</label>
           <button id="copy-button" class="copy-button" type="button">
             <span aria-hidden="true">📄</span> コピー
           </button>
@@ -66,7 +66,7 @@
         <label class="process-option">
           <input type="radio" name="process-mode" value="plain" checked>
           <span class="process-option-body">
-            <span class="process-option-title">そのまま読み上げ</span>
+            <span class="process-option-title">🔊 そのまま読み上げ</span>
             <span class="process-option-note">画像の場合は無料OCRで文字を読み取ります。AIは使いません。</span>
           </span>
         </label>
@@ -74,7 +74,7 @@
         <label class="process-option">
           <input type="radio" name="process-mode" value="ai-ocr">
           <span class="process-option-body">
-            <span class="process-option-title">✨ 高精度OCRで読み上げ</span>
+            <span class="process-option-title">🔍 高精度OCRで読み上げ</span>
             <span class="process-option-note">画像をGeminiで高精度に読み取って、そのまま読み上げます。</span>
           </span>
         </label>
@@ -90,7 +90,7 @@
         <label class="process-option">
           <input type="radio" name="process-mode" value="summarize">
           <span class="process-option-body">
-            <span class="process-option-title">✨ 要約して読み上げ</span>
+            <span class="process-option-title">📝 要約して読み上げ</span>
             <span class="process-option-note">文章をAIで短くまとめて読み上げます。</span>
           </span>
         </label>
@@ -145,7 +145,7 @@
     </section>
 
     <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" role="button" aria-pressed="false" hidden>
-      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span></h2>
+      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span><span id="current-mode" class="current-mode"></span></h2>
       <p id="current-text"></p>
       <div id="progress-text" class="progress-text"></div>
       <p class="current-hint">タップまたはクリックで一時停止 / 再生</p>
