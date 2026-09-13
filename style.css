@@ -86,6 +86,82 @@ h1 {
   font-size: 1.05rem;
 }
 
+/* 一番上の簡易選択です。下の「処理方法」と同じ内容を、横一列で切り替えます。
+   下のボタンより少し狭くして、主役がボタンであることが分かるようにします。 */
+.quick-mode {
+  display: flex;
+  gap: 4px;
+  width: calc(100% - 28px);
+  margin: 0 auto 10px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.quick-option {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  cursor: pointer;
+}
+
+.quick-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quick-option-text {
+  display: block;
+  padding: 6px 2px;
+  border-radius: 999px;
+  color: var(--muted);
+  /* 狭い画面でも4つが1列に収まるよう、幅に合わせて少しだけ小さくします。 */
+  font-size: clamp(.63rem, 3.05vw, .82rem);
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  transition: background-color .15s, color .15s;
+}
+
+.quick-option input:checked + .quick-option-text {
+  background: var(--primary);
+  color: #fff;
+}
+
+.quick-option input:focus-visible + .quick-option-text {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .quick-option:hover input:not(:checked) + .quick-option-text {
+    background: #e2e8f0;
+  }
+}
+
+.quick-option input:disabled + .quick-option-text {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* スマートフォンでは、余白を詰めて4つ分の幅を確保します。 */
+@media (max-width: 480px) {
+  .quick-mode {
+    gap: 3px;
+    width: calc(100% - 10px);
+    padding: 2px;
+  }
+
+  .quick-option-text {
+    padding: 6px 1px;
+  }
+}
+
 .input-heading,
 .speed-label,
 .range-labels {
