@@ -14,7 +14,8 @@ const stopButton = document.getElementById("stop-button");
 const statusText = document.getElementById("status");
 const currentSection = document.getElementById("current-section");
 const currentTitleText = document.getElementById("current-title-text");
-const currentMode = document.getElementById("current-mode");
+const currentSource = document.getElementById("current-source");
+const currentAi = document.getElementById("current-ai");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
 const ocrProgress = document.getElementById("ocr-progress");
@@ -530,6 +531,42 @@ function getTextToRead() {
   return aiResult || textInput.value;
 }
 
+/**
+ * 読み上げ中の見出しへ、実際に行ったことを表示します。
+ * ・入力が「文字」か「画像」か
+ * ・AIを使ったかどうか（使った場合は何に使ったか）
+ * 選んだ処理方法をそのまま出すと、画像向けの方法を選んだまま文字を入力したときに
+ * AIを使ったように見えてしまうため、実際に行ったことを出します。
+ */
+function updateCurrentChips() {
+  const isImage = inputSourceKind === "image";
+  const aiMode = getTextAiMode();
+  const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
+
+  currentSource.textContent = isImage ? "📷 画像" : "📄 文字";
+  currentSource.title = isImage
+    ? (ocrEngineUsed === "ai" ? "画像をAIで読み取った文章です" : "画像をブラウザ内の無料OCRで読み取った文章です")
+    : "入力欄へ文字として入れた文章です";
+
+  let aiLabel = "AIなし";
+  let aiTitle = `AIは使っていません（選んでいる処理方法: ${getProcessModeFullLabel()}）`;
+
+  if (usesAiResult) {
+    aiLabel = aiMode === "translate" ? "✨ AIで翻訳" : "✨ AIで要約";
+    aiTitle = aiMode === "translate" ? "AIが翻訳した文章を読み上げています" : "AIが要約した文章を読み上げています";
+  } else if (isImage && ocrEngineUsed === "ai") {
+    aiLabel = "✨ AIで読取";
+    aiTitle = "AIが画像から読み取った文章を読み上げています";
+  } else if (!isImage && usesAiOcr()) {
+    aiTitle = "AIは使っていません（高精度OCRは画像のときだけ使います）";
+  }
+
+  currentAi.textContent = aiLabel;
+  currentAi.title = aiTitle;
+  currentAi.classList.toggle("is-ai", aiLabel !== "AIなし");
+  currentAi.setAttribute("aria-label", aiTitle);
+}
+
 function startSpeaking() {
   const text = getTextToRead().trim();
   if (!text) {
@@ -552,10 +589,8 @@ function startSpeaking() {
   hasSpokenAnything = false;
   isReading = true;
   isPaused = false;
-  // どの処理方法で読み上げているかを、読み上げ中の見出しの右側へ表示します。
-  currentMode.textContent = getProcessModeLabel();
-  currentMode.title = getProcessModeFullLabel();
-  currentMode.setAttribute("aria-label", `処理方法: ${getProcessModeFullLabel()}`);
+  // 実際に何をして読み上げているかを、見出しの右側へ表示します。
+  updateCurrentChips();
   updateControls("speaking");
   startPlaybackTimers();
   speakCurrentChunk(sessionId);
@@ -749,6 +784,7 @@ async function readFromClipboard() {
     }
 
     textInput.value = sanitizedText;
+    markInputSource("text");
     updateCharacterCount();
     await startReading();
   } catch (error) {
@@ -959,6 +995,8 @@ async function runOcr(file, speakAfterOcr = false) {
     }
 
     textInput.value = recognizedText;
+    // 画像から読み取った文章であることと、どちらのOCRを使ったかを覚えます。
+    markInputSource("image", useAi ? "ai" : "free");
     updateCharacterCount();
 
     if (speakAfterOcr) {
@@ -1239,19 +1277,24 @@ function getProcessMode() {
 }
 
 // 画像をGeminiで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
-// 選んでいる処理方法の名前です。表示する言葉はHTMLの選択肢から取るため、変更は1か所で済みます。
-// 読み上げ中の見出しへ出すのは、行を増やさずに済む短い名前（一番上の簡易選択の言葉）です。
-function getProcessModeLabel() {
-  const selected = document.querySelector('input[name="quick-mode"]:checked');
-  const text = selected?.closest(".quick-option")?.querySelector(".quick-option-text");
-  return text ? text.textContent.trim() : "";
-}
-
-// マウスを重ねたときや読み上げソフト向けの、省略しない名前です。
+// マウスを重ねたときや読み上げソフト向けの、省略しない処理方法の名前です。
 function getProcessModeFullLabel() {
   const selected = document.querySelector('input[name="process-mode"]:checked');
   const title = selected?.closest(".process-option")?.querySelector(".process-option-title");
   return title ? title.textContent.trim() : "";
+}
+
+/**
+ * いま入力欄にある文章が「文字として入れたもの」か「画像から読み取ったもの」かを覚えます。
+ * 選んだ処理方法ではなく、実際に行ったことを画面へ出すためのものです。
+ * 例えば「高精度OCRで読み上げ」を選んでいても、文字を入力したときはAIを使いません。
+ */
+let inputSourceKind = "text";
+let ocrEngineUsed = "";
+
+function markInputSource(kind, ocrEngine = "") {
+  inputSourceKind = kind;
+  ocrEngineUsed = ocrEngine;
 }
 
 function usesAiOcr() {
@@ -1497,6 +1540,8 @@ document.addEventListener("paste", (event) => {
 }, true);
 
 textInput.addEventListener("input", () => {
+  // 手で書き換えたときは、画像から読み取った文章ではなくなります。
+  markInputSource("text");
   updateCharacterCount();
   if (statusText.classList.contains("error")) updateControls(isReading ? "speaking" : "idle");
 });
@@ -1518,6 +1563,7 @@ textInput.addEventListener("paste", (event) => {
   }
 
   textInput.value = sanitizedText;
+  markInputSource("text");
   updateCharacterCount();
   startReading();
 });
