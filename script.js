@@ -677,6 +677,77 @@ function stripMarkdownNoise(text) {
     .replace(/[ \t]*\*[ \t]*/g, "\n");
 }
 
+// 画面の折り返しで入った改行を、続きの文としてつなぎ直すための設定です。
+// 文の終わりの記号で終わる行のあとと、次の行が続きに見えない場合は、改行をそのまま残します。
+const SENTENCE_END_PATTERN = /[。．.！!？?：:；;」』】〉》〕］）)]$/;
+// 行のはじめが日本語・小文字の英字・閉じ括弧・句読点なら、前の行からの続きとみなします。
+// 大文字や数字で始まる行は、一覧の項目や見出しであることが多いため続きとみなしません。
+const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．」』）)]/u;
+const LIST_START_PATTERN = /^(?:[-–—*+•・●○◆■□▲▼※＊]|\d{1,3}[.．)）、]|[(（]\d{1,3}[)）])/;
+// 見出しのような短い行は、折り返しではないとみなして改行を残します。
+const WRAPPED_LINE_MIN_LENGTH = 12;
+// 読点で終わる行は文の途中なので、長さにかかわらず次の行が続きます。
+const CONTINUING_END_PATTERN = /[、，,]$/;
+// 折り返しで入った改行は、行が表示の幅いっぱいまで届いたところに入ります。
+// いちばん長い行を表示の幅とみなし、そこに近い長さの行だけを「続きがある行」とみなします。
+// これで、本文と同じくらいの長さでも幅に届かない見出しの改行を残せます。
+const WRAPPED_LINE_WIDTH_RATIO = 0.9;
+
+// 行の見た目の幅を測ります。英数字・記号は日本語の文字の半分の幅として数えます。
+function measureTextWidth(line) {
+  return Array.from(line).reduce((width, character) => width + (/[\u0020-\u007E\uFF61-\uFF9F]/.test(character) ? 0.5 : 1), 0);
+}
+
+/**
+ * 画面の折り返し位置に入った改行を取り除き、続きの文をつなぎ直します。
+ * PDFからコピーした文章やOCRで読み取った文章は、表示の幅で改行されているため、
+ * そのままでは「〜便利な仕」「組みでも〜」のように語の途中で読み上げが切れます。
+ * 文の終わりの記号で終わっていない行には続きの行がつながっているとみなし、その改行を取り除きます。
+ * 箇条書き・一覧の項目・見出しのような行の改行は、段落の区切りとして残します。
+ * OCRは1つの文の途中にも空行を入れるため、既定では空行をまたいでもつなぎます。
+ * 貼り付けた文章の空行は段落の区切りなので、joinAcrossEmptyLinesをfalseにしてつなぎません。
+ */
+function joinWrappedLines(text, { joinAcrossEmptyLines = true } = {}) {
+  const lines = text.split("\n").map((line) => line.trim());
+  // 折り返しの幅は文章ごとに違うため、いちばん長い行の幅から求めます。
+  const wrapWidth = Math.max(...lines.map(measureTextWidth), 0) * WRAPPED_LINE_WIDTH_RATIO;
+  const joinedLines = [];
+  // 空行はこのあとの整形でどのみち取り除かれるため、区切りとして見るかどうかだけを覚えておきます。
+  let hasEmptyLineBefore = false;
+
+  lines.forEach((line) => {
+    if (line === "") {
+      hasEmptyLineBefore = true;
+      return;
+    }
+
+    // つなぎ先は、すでにつないだあとの行です。折り返しが続く限り1行にまとめます。
+    const previousLine = joinedLines[joinedLines.length - 1] ?? "";
+    // 読点で終わる行は文の途中なので、幅に届いていなくても続きとみなします。
+    const reachesWrapWidth = CONTINUING_END_PATTERN.test(previousLine)
+      || measureTextWidth(previousLine) >= wrapWidth;
+    const continuesPreviousLine = joinedLines.length > 0
+      && (joinAcrossEmptyLines || !hasEmptyLineBefore)
+      && Array.from(previousLine).length >= WRAPPED_LINE_MIN_LENGTH
+      && reachesWrapWidth
+      && !SENTENCE_END_PATTERN.test(previousLine)
+      && CONTINUATION_START_PATTERN.test(line)
+      && !LIST_START_PATTERN.test(line);
+    hasEmptyLineBefore = false;
+
+    if (!continuesPreviousLine) {
+      joinedLines.push(line);
+      return;
+    }
+
+    // 英単語どうしは空白を入れ、日本語はそのままつなぎます。
+    const needsSpace = /[A-Za-z0-9]$/.test(previousLine) && /^[a-z0-9]/.test(line);
+    joinedLines[joinedLines.length - 1] = previousLine + (needsSpace ? " " : "") + line;
+  });
+
+  return joinedLines.join("\n");
+}
+
 /**
  * 貼り付ける文章を整形します。
  * 絵文字・URL・%エンコード文字列・Markdown記法を削除し、
@@ -689,6 +760,12 @@ function sanitizePastedText(text) {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join("\n");
+}
+
+// 貼り付けた文章とクリップボードから取り込んだ文章を、そのまま読み上げられる形に整えます。
+// PDFなどからコピーした文章は表示の幅で改行されているため、その改行をつなぎ直してから整形します。
+function cleanPastedText(text) {
+  return sanitizePastedText(joinWrappedLines(text, { joinAcrossEmptyLines: false }));
 }
 
 // コピーできたことを知らせる表示は、少しの間だけ出して元へ戻します。
@@ -777,7 +854,7 @@ async function readFromClipboard() {
       return;
     }
 
-    const sanitizedText = sanitizePastedText(clipboardText);
+    const sanitizedText = cleanPastedText(clipboardText);
     if (!sanitizedText.trim()) {
       showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
       return;
@@ -814,16 +891,6 @@ const OCR_STEP_LABELS = {
   "initializing api": "読み取りの準備中",
   "recognizing text": "文字を読み取り中",
 };
-
-// 画面の折り返しで入った改行を、続きの文としてつなぎ直すための設定です。
-// 文の終わりの記号で終わる行のあとと、次の行が続きに見えない場合は、改行をそのまま残します。
-const SENTENCE_END_PATTERN = /[。．.！!？?：:；;」』】〉》〕］）)]$/;
-// 行のはじめが日本語・小文字の英字・閉じ括弧・句読点なら、前の行からの続きとみなします。
-// 大文字や数字で始まる行は、一覧の項目や見出しであることが多いため続きとみなしません。
-const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．」』）)]/u;
-const LIST_START_PATTERN = /^(?:[-–—*+•・●○◆■□▲▼※＊]|\d{1,3}[.．)）、]|[(（]\d{1,3}[)）])/;
-// 見出しのような短い行は、折り返しではないとみなして改行を残します。
-const WRAPPED_LINE_MIN_LENGTH = 12;
 
 let tesseractLoader = null;
 let isOcrRunning = false;
@@ -911,39 +978,6 @@ function handleOcrProgress(log) {
 function removeSpacesBetweenJapanese(text) {
   const japanese = "\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}ー々〆、。，．・！？「」『』（）";
   return text.replace(new RegExp(`([${japanese}])[ \\t\u3000]+(?=[${japanese}])`, "gu"), "$1");
-}
-
-/**
- * OCRは画面の折り返し位置にも改行を入れるため、そのままでは語の途中で読み上げが切れます。
- * 文の終わりの記号で終わっていない行には続きの行がつながっているとみなし、その改行を取り除きます。
- * 箇条書き・一覧の項目・見出しのような行の改行は、段落の区切りとして残します。
- */
-function joinWrappedLines(text) {
-  // 空行はこのあとの整形でどのみち取り除かれます。
-  // 先に落としておかないと、文の途中に空行が入ったときに前後がつながらなくなります。
-  const lines = text.split("\n").map((line) => line.trim()).filter((line) => line !== "");
-  const joinedLines = [];
-
-  lines.forEach((line) => {
-    // つなぎ先は、すでにつないだあとの行です。折り返しが続く限り1行にまとめます。
-    const previousLine = joinedLines[joinedLines.length - 1] ?? "";
-    const continuesPreviousLine = joinedLines.length > 0
-      && Array.from(previousLine).length >= WRAPPED_LINE_MIN_LENGTH
-      && !SENTENCE_END_PATTERN.test(previousLine)
-      && CONTINUATION_START_PATTERN.test(line)
-      && !LIST_START_PATTERN.test(line);
-
-    if (!continuesPreviousLine) {
-      joinedLines.push(line);
-      return;
-    }
-
-    // 英単語どうしは空白を入れ、日本語はそのままつなぎます。
-    const needsSpace = /[A-Za-z0-9]$/.test(previousLine) && /^[a-z0-9]/.test(line);
-    joinedLines[joinedLines.length - 1] = previousLine + (needsSpace ? " " : "") + line;
-  });
-
-  return joinedLines.join("\n");
 }
 
 // 読み取った文字を、貼り付け時と同じ整形処理でそのまま使える文章にします。
@@ -1556,7 +1590,7 @@ textInput.addEventListener("paste", (event) => {
 
   event.preventDefault();
   clearBeforeClipboardReading();
-  const sanitizedText = sanitizePastedText(pastedText);
+  const sanitizedText = cleanPastedText(pastedText);
   if (!sanitizedText.trim()) {
     showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
     return;
