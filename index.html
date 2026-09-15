@@ -49,6 +49,8 @@
         <span class="ai-voice-toggle-text">✨ AI音声で読み上げ<span class="ai-voice-toggle-price">（有料）</span></span>
       </label>
 
+      <p id="status" class="status" role="status" aria-live="polite">待機中</p>
+
       <div class="input-heading">
         <div class="input-heading-main">
           <label id="input-label" for="text-input">入力テキスト</label>
@@ -171,8 +173,6 @@
         <div class="ocr-progress-bar"><div id="ocr-progress-fill" class="ocr-progress-fill"></div></div>
         <p id="ocr-progress-label" class="ocr-progress-label" role="status" aria-live="polite">準備中… 0%</p>
       </div>
-
-      <p id="status" class="status" role="status" aria-live="polite">待機中</p>
     </section>
 
     <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" role="button" aria-pressed="false" hidden>
