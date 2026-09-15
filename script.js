@@ -569,18 +569,21 @@ function updateCurrentChips() {
 /**
  * 読み上げの最後に添える終了アナウンスを作ります。
  * 画面の見出しと同じく「選んだ処理方法」ではなく「実際に行ったこと」を伝えるため、
- * 入力が文字か画像か、AIで要約・翻訳したかどうかから文言を組み立てます。
- * 例: 「以上で画像翻訳を終了します。」
+ * 入力が文字か画像か、要約・翻訳したか、AIを使ったかどうかから文言を組み立てます。
+ * 例: 「AIによる画像翻訳を終了します。」「AIなしのテキスト読み上げを終了します。」
  */
 function buildFinishAnnouncement() {
-  const source = inputSourceKind === "image" ? "画像" : "テキスト";
+  const isImage = inputSourceKind === "image";
   const aiMode = getTextAiMode();
   const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
+  // 画像を高精度OCR（AI）で読み取ったときも、AIを使ったこととして伝えます。
+  const usesAi = Boolean(usesAiResult) || (isImage && ocrEngineUsed === "ai");
 
+  const source = isImage ? "画像" : "テキスト";
   let action = "読み上げ";
   if (usesAiResult) action = aiMode === "translate" ? "翻訳" : "要約";
 
-  return `以上で${source}${action}を終了します。`;
+  return `${usesAi ? "AIによる" : "AIなしの"}${source}${action}を終了します。`;
 }
 
 function startSpeaking() {
