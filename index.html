@@ -40,6 +40,11 @@
         </label>
       </div>
 
+      <label class="ai-voice-toggle" for="ai-voice-toggle">
+        <input type="checkbox" id="ai-voice-toggle">
+        <span class="ai-voice-toggle-text">✨ AI音声で読み上げ<span class="ai-voice-toggle-price">（有料）</span></span>
+      </label>
+
       <button id="clipboard-button" class="button button-primary clipboard-button" type="button">
         <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
       </button>
@@ -127,11 +132,14 @@
 
       <div class="settings" aria-label="読み上げ設定">
         <div class="setting-field voice-field">
-          <label for="voice-select">音声</label>
-          <select id="voice-select" aria-describedby="voice-note">
+          <label for="voice-select">音声（ブラウザ・無料）</label>
+          <select id="voice-select">
             <option value="">音声を読み込んでいます…</option>
           </select>
-          <p id="voice-note" class="voice-note" hidden></p>
+
+          <label class="ai-voice-label" for="ai-voice-select">✨ AI音声（Gemini・有料）</label>
+          <select id="ai-voice-select" aria-describedby="voice-note"></select>
+          <p id="voice-note" class="voice-note"></p>
         </div>
 
         <div class="setting-field speed-field">

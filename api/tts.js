@@ -19,8 +19,9 @@ const { generateSpeech, listAvailableModels, getGeminiTtsModel } = require("./_g
 // 長い文章は短く区切って何回も呼ぶため、文章の処理（api/ai.js）より多めにしています。
 const TTS_REQUEST_LIMIT = 60;
 const TTS_WINDOW_MS = 10 * 60 * 1000;
-// 1回で渡せる文章の長さです。長すぎるとVercelの制限時間（30秒）内に終わりません。
-const MAX_TEXT_LENGTH = 600;
+// 1回で渡せる文章の長さです。長すぎるとVercelの制限時間（60秒）内に終わりません。
+// 画面側（script.js の AI_TTS_CHUNK_LENGTH）は、これより短く区切って送ります。
+const MAX_TEXT_LENGTH = 300;
 
 // 使える音声です。増やすときは、画面側（script.js の AI_VOICES）と合わせてください。
 const ALLOWED_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Leda", "Achird", "Vindemiatrix", "Sulafat"];
@@ -37,7 +38,7 @@ const MESSAGES = {
   tooLong: "文章が長すぎます。短く分けてお試しください。",
   invalidKey: "AI音声を利用できません。APIキーの設定を確認してください。",
   invalidModel: "AI音声のモデルを利用できません。モデル名の設定を確認してください。",
-  busy: "AI音声の利用が混み合っています。しばらくしてから再度お試しください。",
+  busy: "AI音声が混み合っています（Geminiの利用上限）。少し待つと続きを作れます。",
   timeout: "AI音声の生成が時間内に終わりませんでした。短い文章でお試しください。",
   failed: "AI音声の生成に失敗しました。しばらくしてから再度お試しください。",
   empty: "AIが音声を返しませんでした。もう一度お試しください。",
@@ -122,12 +123,19 @@ module.exports = async function handler(request, response) {
       });
     }
 
+    if (status === 429) {
+      // どれくらい待てばよいかをブラウザへ伝えて、自動でやり直せるようにします。
+      return response.status(502).json({
+        message: MESSAGES.busy,
+        code: "TTS-G429",
+        retryAfterMs: error?.retryAfterMs || 0,
+      });
+    }
+
     if (status) {
       const message = status === 400 || status === 401 || status === 403
         ? MESSAGES.invalidKey
-        : status === 429
-          ? MESSAGES.busy
-          : MESSAGES.failed;
+        : MESSAGES.failed;
       return response.status(502).json({ message, code: `TTS-G${status}` });
     }
 
