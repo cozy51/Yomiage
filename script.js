@@ -41,7 +41,6 @@ const passwordCancel = document.getElementById("password-cancel");
 
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
-const FINISH_ANNOUNCEMENT = "以上で読み上げを終了します。";
 
 // 読み上げが無言のまま止まってしまう不具合を検知し、自動で復帰するための設定です。
 // ブラウザによっては1回の発話が15秒ほどを超えると、onend/onerrorのどちらも発火せずに停止します。
@@ -567,6 +566,27 @@ function updateCurrentChips() {
   currentAi.setAttribute("aria-label", aiTitle);
 }
 
+/**
+ * 読み上げの最後に添える終了アナウンスを作ります。
+ * 画面の見出しと同じく「選んだ処理方法」ではなく「実際に行ったこと」を伝えるため、
+ * 入力が文字か画像か、要約・翻訳したか、AIを使ったかどうかから文言を組み立てます。
+ * 例: 「AIによる画像翻訳を終了します。」「テキスト読み上げを終了します。」
+ * AIを使っていないときは、そのことに触れずに何をしたかだけを伝えます。
+ */
+function buildFinishAnnouncement() {
+  const isImage = inputSourceKind === "image";
+  const aiMode = getTextAiMode();
+  const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
+  // 画像を高精度OCR（AI）で読み取ったときも、AIを使ったこととして伝えます。
+  const usesAi = Boolean(usesAiResult) || (isImage && ocrEngineUsed === "ai");
+
+  const source = isImage ? "画像" : "テキスト";
+  let action = "読み上げ";
+  if (usesAiResult) action = aiMode === "translate" ? "翻訳" : "要約";
+
+  return `${usesAi ? "AIによる" : ""}${source}${action}を終了します。`;
+}
+
 function startSpeaking() {
   const text = getTextToRead().trim();
   if (!text) {
@@ -580,7 +600,7 @@ function startSpeaking() {
   const realChunks = splitText(text);
   realChunkCount = realChunks.length;
   // 最後に終了アナウンスを疑似チャンクとして追加し、読み上げ完了後にひと言添えてから閉じます。
-  chunks = [...realChunks, FINISH_ANNOUNCEMENT];
+  chunks = [...realChunks, buildFinishAnnouncement()];
   currentChunkIndex = 0;
   currentChunkOffset = 0;
   recoveryOffset = -1;
