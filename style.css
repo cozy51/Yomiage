@@ -440,6 +440,19 @@ select:focus {
   min-width: 0;
 }
 
+/* AI音声を選んだときに出す案内です。料金がかかることが分かるようにします。 */
+.voice-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.voice-note.is-ai {
+  color: #6d28d9;
+  font-weight: 700;
+}
+
 select {
   width: 100%;
   height: 46px;

@@ -21,7 +21,7 @@
     </header>
 
     <section class="card" aria-labelledby="input-label">
-      <div class="quick-mode" role="radiogroup" aria-label="処理方法（簡易選択）">
+      <div class="quick-mode" role="radiogroup" aria-label="処理方法（選ぶとすぐ読み上げます）">
         <label class="quick-option">
           <input type="radio" name="quick-mode" value="plain" checked>
           <span class="quick-option-text">🔊 そのまま</span>
@@ -128,9 +128,10 @@
       <div class="settings" aria-label="読み上げ設定">
         <div class="setting-field voice-field">
           <label for="voice-select">音声</label>
-          <select id="voice-select">
+          <select id="voice-select" aria-describedby="voice-note">
             <option value="">音声を読み込んでいます…</option>
           </select>
+          <p id="voice-note" class="voice-note" hidden></p>
         </div>
 
         <div class="setting-field speed-field">
@@ -153,6 +154,9 @@
         <button id="stop-button" class="button button-danger" type="button" disabled>
           <span aria-hidden="true">■</span> 停止
         </button>
+        <button id="download-button" class="button button-secondary" type="button" hidden>
+          <span aria-hidden="true">⬇</span> <span class="nowrap">音声を保存</span>
+        </button>
       </div>
 
       <div id="ocr-progress" class="ocr-progress" hidden>
@@ -172,7 +176,7 @@
 
     <dialog id="password-dialog" class="password-dialog" aria-labelledby="password-title">
       <form id="password-form">
-        <h2 id="password-title">AI高精度OCRを利用するには<br>パスワードを入力してください</h2>
+        <h2 id="password-title">AIの機能を利用するには<br>パスワードを入力してください</h2>
         <label class="password-label" for="password-input">パスワード</label>
         <input id="password-input" type="password" autocomplete="current-password" required>
         <p id="password-error" class="password-error" role="alert" hidden></p>
