@@ -20,7 +20,7 @@ const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 // 音声や画像を作るためのモデルは、文章の処理には使えないため候補から除きます。
 const UNUSABLE_MODEL_PATTERN = /tts|image|audio|live|embedding/;
 const GEMINI_TIMEOUT_MS = 25000;
-const GEMINI_TTS_TIMEOUT_MS = 27000;
+const GEMINI_TTS_TIMEOUT_MS = 55000;
 const GEMINI_MODEL_LIST_TIMEOUT_MS = 8000;
 
 // 環境変数の値が使えない形のときは、既定のモデル名に戻します。
@@ -71,6 +71,16 @@ async function listAvailableModels(apiKey, options = {}) {
     console.error("モデル一覧を取得できませんでした。", error?.name || error);
     return [];
   }
+}
+
+/**
+ * Gemini側が混み合っているとき、返事の中で「◯秒後に試して」と教えてくれることがあります。
+ * その秒数を取り出して、待ち時間として使えるようにします（最大60秒）。
+ */
+function readRetryAfterMs(errorBody) {
+  const matched = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(errorBody || "");
+  if (!matched) return 0;
+  return Math.min(Math.round(Number(matched[1]) * 1000), 60000);
 }
 
 // 指示に反してMarkdownのコードブロックが返ってきた場合に備えて、その記号だけ取り除きます。
@@ -174,10 +184,13 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
 
   if (!geminiResponse.ok) {
     // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
-    console.error("Gemini TTS APIがエラーを返しました。", geminiResponse.status, await readErrorBody(geminiResponse));
+    const errorBody = await readErrorBody(geminiResponse);
+    console.error("Gemini TTS APIがエラーを返しました。", geminiResponse.status, errorBody);
     const error = new Error(`Gemini responded with ${geminiResponse.status}`);
     error.geminiStatus = geminiResponse.status;
     error.geminiModel = model;
+    // 混み合っているときは、どれくらい待てばよいかも一緒に持たせます。
+    error.retryAfterMs = readRetryAfterMs(errorBody);
     throw error;
   }
 
@@ -201,6 +214,7 @@ module.exports = {
   GEMINI_TTS_TIMEOUT_MS,
   getGeminiModel,
   getGeminiTtsModel,
+  readRetryAfterMs,
   generateText,
   generateSpeech,
   listAvailableModels,

@@ -203,6 +203,48 @@ h1 {
   font-size: .86rem;
 }
 
+/* AI音声で読み上げるかどうかの切り替えです。料金がかかるため、ひと目で分かるようにします。 */
+.ai-voice-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 28px);
+  margin: 0 auto 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: .86rem;
+  font-weight: 700;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+
+.ai-voice-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #7c3aed;
+  cursor: pointer;
+}
+
+.ai-voice-toggle:has(input:checked) {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.ai-voice-toggle:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.ai-voice-toggle-price {
+  font-weight: 400;
+}
+
 /* 入力欄の文章をまるごとコピーするボタンです。 */
 .input-heading-main {
   display: flex;
@@ -440,7 +482,14 @@ select:focus {
   min-width: 0;
 }
 
-/* AI音声を選んだときに出す案内です。料金がかかることが分かるようにします。 */
+/* ブラウザの音声の下に置く、AI音声の選択です。 */
+.ai-voice-label {
+  display: block;
+  margin-top: 14px;
+  color: #6d28d9;
+}
+
+/* AI音声の案内です。使うかどうかで色を変えて、料金がかかることが分かるようにします。 */
 .voice-note {
   margin: 8px 0 0;
   color: var(--muted);

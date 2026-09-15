@@ -5,6 +5,8 @@ const textInput = document.getElementById("text-input");
 const characterCount = document.getElementById("character-count");
 const voiceSelect = document.getElementById("voice-select");
 const voiceNote = document.getElementById("voice-note");
+const aiVoiceToggle = document.getElementById("ai-voice-toggle");
+const aiVoiceSelect = document.getElementById("ai-voice-select");
 const rateInput = document.getElementById("rate-input");
 const rateOutput = document.getElementById("rate-output");
 const speakButton = document.getElementById("speak-button");
@@ -100,41 +102,19 @@ function loadVoices() {
   });
 
   voiceSelect.replaceChildren();
+
+  if (voices.length === 0) {
+    voiceSelect.add(new Option("利用できる音声が見つかりません", ""));
+    voiceSelect.disabled = true;
+    return;
+  }
+
   voiceSelect.disabled = false;
-
-  // 料金のかからないブラウザの音声を先に置き、AI音声（有料）はそのあとに置きます。
-  const browserGroup = document.createElement("optgroup");
-  browserGroup.label = "ブラウザの音声（無料）";
-  if (voices.length === 0) {
-    browserGroup.append(new Option("利用できる音声が見つかりません", ""));
-  } else {
-    voices.forEach((voice) => {
-      const japaneseLabel = voice.lang.toLowerCase().startsWith("ja") ? "日本語 / " : "";
-      const localLabel = voice.localService ? "" : "（オンライン）";
-      browserGroup.append(new Option(`${japaneseLabel}${voice.name}［${voice.lang}］${localLabel}`, voice.voiceURI));
-    });
-  }
-  voiceSelect.add(browserGroup);
-
-  const aiGroup = document.createElement("optgroup");
-  aiGroup.label = "✨ AI音声（Gemini・有料）";
-  AI_VOICES.forEach((voice) => {
-    aiGroup.append(new Option(`✨ ${voice.label}`, `${AI_VOICE_PREFIX}${voice.id}`));
+  voices.forEach((voice) => {
+    const japaneseLabel = voice.lang.toLowerCase().startsWith("ja") ? "日本語 / " : "";
+    const localLabel = voice.localService ? "" : "（オンライン）";
+    voiceSelect.add(new Option(`${japaneseLabel}${voice.name}［${voice.lang}］${localLabel}`, voice.voiceURI));
   });
-  voiceSelect.add(aiGroup);
-
-  // AI音声を選んでいたときは、その選択をそのまま保ちます。
-  if (isAiVoiceValue(selectedVoiceURI)) {
-    voiceSelect.value = selectedVoiceURI;
-    updateVoiceNote();
-    return;
-  }
-
-  if (voices.length === 0) {
-    voiceSelect.value = "";
-    updateVoiceNote();
-    return;
-  }
 
   // 選択済みの音声を維持し、初回は日本語音声の「七海」を最優先します。
   const previousVoice = voices.find((voice) => voice.voiceURI === selectedVoiceURI);
@@ -150,7 +130,6 @@ function loadVoices() {
     || voices.find((voice) => voice.default)
     || voices[0];
   voiceSelect.value = preferredVoice.voiceURI;
-  updateVoiceNote();
 }
 
 /**
@@ -609,8 +588,8 @@ function buildFinishAnnouncement() {
   const isImage = inputSourceKind === "image";
   const aiMode = getTextAiMode();
   const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
-  // 画像を高精度OCR（AI）で読み取ったときも、AI音声で読み上げるときも、AIを使ったこととして伝えます。
-  const usesAi = Boolean(usesAiResult) || (isImage && ocrEngineUsed === "ai") || isAiPlayback;
+  // 画像を高精度OCR（AI）で読み取ったときも、AIを使ったこととして伝えます。
+  const usesAi = Boolean(usesAiResult) || (isImage && ocrEngineUsed === "ai");
 
   const source = isImage ? "画像" : "テキスト";
   let action = "読み上げ";
@@ -630,8 +609,8 @@ function startSpeaking() {
   // 前に作った音声は、新しく読み上げ始めた時点で保存できなくします。
   clearAiAudio();
 
-  // AI音声（有料）を選んでいるときは、Geminiで音声を作って再生します。
-  if (isAiVoiceSelected()) {
+  // AI音声（有料）がONのときは、Geminiで音声を作って再生します。
+  if (isAiVoiceEnabled()) {
     startAiSpeaking(text).catch(handleAiPlaybackFailure);
     return;
   }
@@ -1683,15 +1662,17 @@ async function startReading() {
 // 作った音声は、そのままWAVファイルとして保存できます。
 
 const AI_TTS_ENDPOINT = "/api/tts";
-const AI_TTS_TIMEOUT_MS = 40000;
-// 音声の選択で、AI音声だけを見分けるための印です。
-const AI_VOICE_PREFIX = "ai:";
-// 1回で作る文章の長さです。短く区切るほど、最初の音が出るまでが早くなります。
+// 音声を作るのには時間がかかるため、長めに待ちます（api/tts.js の maxDuration より長くします）。
+const AI_TTS_TIMEOUT_MS = 65000;
+// 1回で作る文章の長さです。短く区切るほど、最初の音が出るまでが早くなり、時間切れも起きにくくなります。
 // api/tts.js の MAX_TEXT_LENGTH より短くしてください。
-const AI_TTS_CHUNK_LENGTH = 240;
+const AI_TTS_CHUNK_LENGTH = 120;
 // Geminiが返す音声の形式です（16ビット・モノラル）。実際の値は返事から読み取ります。
 const AI_TTS_DEFAULT_SAMPLE_RATE = 24000;
 const AI_TTS_BITS_PER_SAMPLE = 16;
+// Gemini側が混み合っている（429）ときに、待ってからやり直す回数と、既定の待ち時間です。
+const AI_TTS_BUSY_RETRY_DELAYS_MS = [8000, 20000];
+
 // 同じ文章・同じ声をもう一度読み上げるときに、作り直して料金がかからないようにします。
 // 音声は大きいため、覚えておく量に上限を決めて、古いものから忘れます。
 const AI_SPEECH_CACHE_MAX_BYTES = 32 * 1024 * 1024;
@@ -1708,7 +1689,12 @@ const AI_VOICES = [
   { id: "Sulafat", label: "Sulafat（あたたかい声）" },
 ];
 
-const AI_VOICE_NOTE = "✨ Geminiが音声を作ります。料金がかかり、パスワードの入力が必要です。作った音声は「音声を保存」からWAVで保存できます。";
+// 読み上げ速度の初期値です。AI音声はもともと自然な速さで話すため、1.0倍から始めます。
+const BROWSER_DEFAULT_RATE = 2;
+const AI_DEFAULT_RATE = 1;
+
+const AI_VOICE_NOTE_ON = "✨ この声で読み上げます。料金がかかり、パスワードの入力が必要です。作った音声は「音声を保存」からWAVで保存できます。";
+const AI_VOICE_NOTE_OFF = "上の「✨ AI音声で読み上げ」をONにすると、この声で読み上げます（有料）。OFFのあいだは、ブラウザの音声（無料）で読み上げます。";
 
 const audioPlayer = new Audio();
 audioPlayer.preload = "auto";
@@ -1723,24 +1709,57 @@ let aiSampleRate = AI_TTS_DEFAULT_SAMPLE_RATE;
 let isAudioUnlocked = false;
 const aiSpeechCache = new Map();
 
-function isAiVoiceValue(value) {
-  return typeof value === "string" && value.startsWith(AI_VOICE_PREFIX);
-}
+// 読み上げ速度は、ブラウザの音声とAI音声で別々に覚えておきます。
+let browserRate = BROWSER_DEFAULT_RATE;
+let aiRate = AI_DEFAULT_RATE;
 
-function isAiVoiceSelected() {
-  return isAiVoiceValue(voiceSelect.value);
+// 画面いちばん上の切り替えがONのときだけ、AI音声で読み上げます。
+function isAiVoiceEnabled() {
+  return aiVoiceToggle.checked;
 }
 
 function getSelectedAiVoice() {
-  return isAiVoiceSelected() ? voiceSelect.value.slice(AI_VOICE_PREFIX.length) : "";
+  return aiVoiceSelect.value || AI_VOICES[0].id;
 }
 
-// AI音声を選んでいるあいだだけ、料金がかかることを画面へ出しておきます。
+// 選べるAI音声を、ブラウザの音声とは別の選択として並べます。
+function loadAiVoices() {
+  aiVoiceSelect.replaceChildren();
+  AI_VOICES.forEach((voice) => {
+    aiVoiceSelect.add(new Option(voice.label, voice.id));
+  });
+  aiVoiceSelect.value = AI_VOICES[0].id;
+}
+
+// AI音声を使うかどうかで、案内の文言と色を変えます。
 function updateVoiceNote() {
-  const isAiVoice = isAiVoiceSelected();
-  voiceNote.textContent = isAiVoice ? AI_VOICE_NOTE : "";
-  voiceNote.hidden = !isAiVoice;
+  const isAiVoice = isAiVoiceEnabled();
+  voiceNote.textContent = isAiVoice ? AI_VOICE_NOTE_ON : AI_VOICE_NOTE_OFF;
   voiceNote.classList.toggle("is-ai", isAiVoice);
+}
+
+// 読み上げ速度を、表示と読み上げソフト向けの案内ごと入れ替えます。
+function setRate(rate) {
+  rateInput.value = String(rate);
+  const label = `${Number(rate).toFixed(1)}倍`;
+  rateOutput.textContent = label;
+  rateInput.setAttribute("aria-valuetext", label);
+}
+
+/**
+ * AI音声を使うかどうかを切り替えます。
+ * 読み上げ速度は、ブラウザの音声とAI音声で別々に覚えておき、切り替えに合わせて戻します。
+ */
+function handleAiVoiceToggle() {
+  if (isAiVoiceEnabled()) {
+    browserRate = Number(rateInput.value) || BROWSER_DEFAULT_RATE;
+    setRate(aiRate);
+  } else {
+    aiRate = Number(rateInput.value) || AI_DEFAULT_RATE;
+    setRate(browserRate);
+  }
+
+  updateVoiceNote();
 }
 
 function getPlaybackRate() {
@@ -1808,8 +1827,8 @@ async function startAiSpeaking(text) {
   hasSpokenAnything = false;
   aiAudioParts = [];
   aiVoiceUsed = getSelectedAiVoice();
-  // 最後のひと言は、読み上げた文章と同じ声で伝えます（保存する音声には入れません）。
-  chunks = [...realChunks, buildFinishAnnouncement()];
+  // AI音声では、最後のひと言（終了アナウンス）は読み上げません。
+  chunks = realChunks;
 
   updateCurrentChips();
   updateControls("speaking");
@@ -1829,20 +1848,13 @@ async function playAiChunk(activeSessionId, index) {
   currentChunkIndex = index;
   const chunkText = chunks[index];
   renderCurrentText(chunkText);
-
-  if (index < realChunkCount) {
-    renderProgressDots(index + 1, realChunkCount);
-  } else {
-    progressText.removeAttribute("role");
-    progressText.removeAttribute("aria-label");
-    progressText.textContent = "読み上げ終了";
-  }
+  renderProgressDots(index + 1, realChunkCount);
 
   // 音声を作っているあいだも、何をしているかが分かるようにします。
   if (!isPaused) {
     statusText.classList.remove("error");
     statusText.textContent = realChunkCount > 1
-      ? `AI音声を作っています…（${Math.min(index + 1, realChunkCount)} / ${realChunkCount}）`
+      ? `AI音声を作っています…（${index + 1} / ${realChunkCount}）`
       : "AI音声を作っています…";
   }
 
@@ -1862,12 +1874,10 @@ async function playAiChunk(activeSessionId, index) {
 
   if (!isReading || activeSessionId !== sessionId) return;
 
-  // 保存できるよう、読み上げた文章の音声だけをためます（終了アナウンスは入れません）。
-  if (index < realChunkCount) {
-    aiAudioParts.push(speech.pcm);
-    aiSampleRate = speech.sampleRate;
-    updateDownloadButton();
-  }
+  // 保存できるよう、読み上げた音声を順番にためます。
+  aiAudioParts.push(speech.pcm);
+  aiSampleRate = speech.sampleRate;
+  updateDownloadButton();
 
   // 次の音声は、いまの音声を流しているあいだに作っておきます。
   if (index + 1 < chunks.length) {
@@ -1939,7 +1949,7 @@ function fetchAiSpeech(text) {
   const cached = aiSpeechCache.get(key);
   if (cached) return cached.request;
 
-  const entry = { request: withPasswordRetry(() => requestAiSpeech(text, aiVoiceUsed)), bytes: 0 };
+  const entry = { request: withPasswordRetry(() => requestAiSpeechWithRetry(text, aiVoiceUsed)), bytes: 0 };
   aiSpeechCache.set(key, entry);
 
   entry.request.then((speech) => {
@@ -1967,6 +1977,34 @@ function trimAiSpeechCache() {
   }
 }
 
+/**
+ * Gemini側が混み合っている（TTS-G429）ときは、少し待ってからやり直します。
+ * 無料枠では1分あたりに作れる回数が決まっているため、待てば続きを作れることが多いからです。
+ * 待つ時間は、Geminiが教えてくれた秒数を優先して使います。
+ */
+async function requestAiSpeechWithRetry(text, voice) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await requestAiSpeech(text, voice);
+    } catch (error) {
+      const defaultDelay = AI_TTS_BUSY_RETRY_DELAYS_MS[attempt];
+      if (error?.ocrCode !== "TTS-G429" || !defaultDelay) throw error;
+
+      const waitMs = Math.min(Math.max(error.retryAfterMs || defaultDelay, 3000), 60000);
+      showBusyNotice(waitMs);
+      await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+    }
+  }
+}
+
+// 混み合っているあいだ、待っていることが分かるようにします。
+// 止めたあとに案内が出てしまわないよう、読み上げているあいだだけ出します。
+function showBusyNotice(waitMs) {
+  if (!isReading || !isAiPlayback) return;
+  statusText.classList.remove("error");
+  statusText.textContent = `AI音声が混み合っています。${Math.ceil(waitMs / 1000)}秒待ってから続きを作ります…`;
+}
+
 // Vercel側の /api/tts を経由して、Geminiが作った音声を受け取ります。
 async function requestAiSpeech(text, voice) {
   const controller = new AbortController();
@@ -1992,7 +2030,10 @@ async function requestAiSpeech(text, voice) {
     }
 
     if (!response.ok || !result.audio) {
-      throw createOcrError(result.message || "AI音声を作れませんでした。しばらくしてから再度お試しください。", result.code);
+      const error = createOcrError(result.message || "AI音声を作れませんでした。しばらくしてから再度お試しください。", result.code);
+      // 混み合っているときは、Geminiが教えてくれた待ち時間も受け取ります。
+      error.retryAfterMs = Number(result.retryAfterMs) || 0;
+      throw error;
     }
 
     return { pcm: decodeBase64(result.audio), sampleRate: getAudioSampleRate(result.mimeType) };
@@ -2153,9 +2194,14 @@ textInput.addEventListener("paste", (event) => {
 });
 
 rateInput.addEventListener("input", () => {
-  const rate = Number(rateInput.value).toFixed(1);
-  rateOutput.textContent = `${rate}倍`;
-  rateInput.setAttribute("aria-valuetext", `${rate}倍`);
+  const rate = Number(rateInput.value) || 1;
+  rateOutput.textContent = `${rate.toFixed(1)}倍`;
+  rateInput.setAttribute("aria-valuetext", `${rate.toFixed(1)}倍`);
+
+  // 変えた速さは、いま使っている音声の速さとして覚えておきます。
+  if (isAiVoiceEnabled()) aiRate = rate;
+  else browserRate = rate;
+
   // AI音声は、再生中でもすぐに速さを変えられます。
   if (isAiPlayback) audioPlayer.playbackRate = getPlaybackRate();
 });
@@ -2166,7 +2212,7 @@ copyButton.addEventListener("click", () => copyTextToClipboard(textInput));
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
 downloadButton.addEventListener("click", downloadAiAudio);
-voiceSelect.addEventListener("change", updateVoiceNote);
+aiVoiceToggle.addEventListener("change", handleAiVoiceToggle);
 
 // ポップアップの枠外を押すと、閉じて読み上げを停止します。
 // click ではなくpointerdownで判定することで、他ボタンのclickより先に処理します。
@@ -2193,6 +2239,10 @@ currentSection.addEventListener("keydown", (event) => {
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
 window.addEventListener("pagehide", () => stopSpeaking(false));
 window.addEventListener("beforeunload", () => synthesis.cancel());
+
+// AI音声の一覧と案内は、ブラウザの音声の有無にかかわらず用意します。
+loadAiVoices();
+updateVoiceNote();
 
 if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) {
   loadVoices();
