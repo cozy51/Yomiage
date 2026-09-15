@@ -210,7 +210,7 @@ h1 {
   justify-content: center;
   gap: 8px;
   width: calc(100% - 28px);
-  margin: 0 auto 20px;
+  margin: 0 auto 8px;
   padding: 7px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -607,9 +607,11 @@ input[type="range"] {
   color: var(--danger);
 }
 
+/* いま何をしているか（待機中・読み上げ中・エラーなど）を、画面の上のほうに出します。
+   ボタンの下では気づきにくいため、AI音声の切り替えのすぐ下に置いています。 */
 .status {
   min-height: 1.6em;
-  margin: 16px 0 -8px;
+  margin: 0 0 14px;
   color: var(--muted);
   text-align: center;
   font-size: .9rem;

@@ -1678,11 +1678,12 @@ const AI_TTS_BUSY_RETRY_DELAYS_MS = [8000, 20000];
 const AI_SPEECH_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 
 // 選べるAI音声です。増やすときは、api/tts.js の ALLOWED_VOICES にも追加してください。
+// 先頭の声が初期値になります。
 const AI_VOICES = [
+  { id: "Aoede", label: "Aoede（軽やかな声）" },
   { id: "Kore", label: "Kore（落ち着いた声）" },
   { id: "Puck", label: "Puck（明るい声）" },
   { id: "Charon", label: "Charon（説明に向いた声）" },
-  { id: "Aoede", label: "Aoede（軽やかな声）" },
   { id: "Leda", label: "Leda（若々しい声）" },
   { id: "Achird", label: "Achird（親しみやすい声）" },
   { id: "Vindemiatrix", label: "Vindemiatrix（やさしい声）" },

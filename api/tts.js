@@ -24,8 +24,8 @@ const TTS_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TEXT_LENGTH = 300;
 
 // 使える音声です。増やすときは、画面側（script.js の AI_VOICES）と合わせてください。
-const ALLOWED_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Leda", "Achird", "Vindemiatrix", "Sulafat"];
-const DEFAULT_VOICE = "Kore";
+const ALLOWED_VOICES = ["Aoede", "Kore", "Puck", "Charon", "Leda", "Achird", "Vindemiatrix", "Sulafat"];
+const DEFAULT_VOICE = "Aoede";
 
 const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
