@@ -570,7 +570,8 @@ function updateCurrentChips() {
  * 読み上げの最後に添える終了アナウンスを作ります。
  * 画面の見出しと同じく「選んだ処理方法」ではなく「実際に行ったこと」を伝えるため、
  * 入力が文字か画像か、要約・翻訳したか、AIを使ったかどうかから文言を組み立てます。
- * 例: 「AIによる画像翻訳を終了します。」「AIなしのテキスト読み上げを終了します。」
+ * 例: 「AIによる画像翻訳を終了します。」「テキスト読み上げを終了します。」
+ * AIを使っていないときは、そのことに触れずに何をしたかだけを伝えます。
  */
 function buildFinishAnnouncement() {
   const isImage = inputSourceKind === "image";
@@ -583,7 +584,7 @@ function buildFinishAnnouncement() {
   let action = "読み上げ";
   if (usesAiResult) action = aiMode === "translate" ? "翻訳" : "要約";
 
-  return `${usesAi ? "AIによる" : "AIなしの"}${source}${action}を終了します。`;
+  return `${usesAi ? "AIによる" : ""}${source}${action}を終了します。`;
 }
 
 function startSpeaking() {
