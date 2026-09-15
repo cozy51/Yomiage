@@ -22,6 +22,7 @@ const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
 const processModeInputs = document.querySelectorAll('input[name="process-mode"]');
+const quickMode = document.querySelector(".quick-mode");
 const quickModeInputs = document.querySelectorAll('input[name="quick-mode"]');
 const aiResultSection = document.getElementById("ai-result");
 const aiResultInput = document.getElementById("ai-result-input");
@@ -1416,6 +1417,53 @@ function restoreProcessSettings() {
     syncProcessModeInputs(input.value);
     updateTranslateLanguageField();
     saveProcessSettings();
+  });
+});
+
+/**
+ * 一番上の簡易選択は、切り替えるだけで読み上げまで進めます。
+ * 「方法を選ぶ」「読み上げを押す」の2回の操作を、1回にするためのものです。
+ * 入力欄に文章があるときは、その文章を選び直した方法で読み上げ直します。
+ * 文章がないときは、クリップボードから取り込んで読み上げます。
+ * 下の「処理方法」は、これまでどおり切り替えるだけで読み上げは始めません。
+ */
+async function readWithSelectedMode() {
+  // 切り替える前のAIの結果は、選び直した方法の結果ではないため、AIを使わない方法では消します。
+  // （翻訳・要約を選び直したときは、新しい結果で置き換わります。）
+  if (!getTextAiMode()) clearAiResult();
+
+  if (!textInput.value.trim()) {
+    await readFromClipboard();
+    return;
+  }
+
+  await startReading();
+}
+
+/**
+ * マウス・指で選んだときは、そのまま続けて読み上げます（クリップボードの読み取り許可のため、
+ * 操作と同じ流れで進めます）。キーボードの矢印キーは押すたびに選択が変わるため、
+ * 通り過ぎた方法で読み上げてしまわないよう、少し待って最後の選択だけを実行します。
+ */
+const QUICK_MODE_KEY_DELAY = 400;
+let quickModePointerTime = 0;
+let quickModeKeyTimer = null;
+
+quickMode.addEventListener("pointerdown", () => {
+  quickModePointerTime = Date.now();
+});
+
+quickModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    clearTimeout(quickModeKeyTimer);
+
+    if (Date.now() - quickModePointerTime < 1000) {
+      quickModePointerTime = 0;
+      readWithSelectedMode();
+      return;
+    }
+
+    quickModeKeyTimer = setTimeout(readWithSelectedMode, QUICK_MODE_KEY_DELAY);
   });
 });
 
