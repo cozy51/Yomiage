@@ -82,34 +82,8 @@ h1 {
 .clipboard-button {
   width: 100%;
   min-height: 56px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   font-size: 1.05rem;
-}
-
-/* ショートカットキーの案内です。キーボードのない端末では意味がないため隠します。 */
-.shortcut-hint {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: .78rem;
-  text-align: center;
-}
-
-.shortcut-hint kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  background: #f8fafc;
-  font-family: inherit;
-  font-size: .78rem;
-  line-height: 1.5;
-}
-
-@media (hover: none) and (pointer: coarse) {
-  .shortcut-hint {
-    display: none;
-  }
 }
 
 /* 一番上の簡易選択です。下の「処理方法」と同じ内容を、横一列で切り替えます。
