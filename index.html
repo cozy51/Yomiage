@@ -40,9 +40,11 @@
         </label>
       </div>
 
-      <button id="clipboard-button" class="button button-primary clipboard-button" type="button">
+      <button id="clipboard-button" class="button button-primary clipboard-button" type="button"
+        aria-keyshortcuts="Control+Shift+L" title="ショートカットキー: Ctrl + Shift + L">
         <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
       </button>
+      <p class="shortcut-hint"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> でも読み上げます<span class="nowrap">（この画面を開いているとき）</span></p>
 
       <label class="ai-voice-toggle" for="ai-voice-toggle">
         <input type="checkbox" id="ai-voice-toggle">
