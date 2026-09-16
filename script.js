@@ -882,7 +882,7 @@ async function copyTextToClipboard(sourceInput = textInput) {
  * クリップボードの文章を入力欄へ取り込み、すぐに読み上げます。
  * Clipboard APIはブラウザの仕様によりHTTPSまたはlocalhostが必要な場合があります。
  */
-async function readFromClipboard() {
+async function readFromClipboard(isAutoStart = false) {
   // 読み取りの成否にかかわらず、先に以前の文章と読み上げをクリアします。
   clearBeforeClipboardReading();
 
@@ -916,11 +916,14 @@ async function readFromClipboard() {
     await startReading();
   } catch (error) {
     console.warn("クリップボードの読み取りに失敗しました。", error);
-    const securityHint = window.isSecureContext
-      ? "ブラウザのクリップボード権限を許可してください。"
-      : "許可確認なしで使うには、入力欄を選択してCtrl+Vで貼り付けてください。";
+    // 自動で始めた場合は、画面をまだ触っていないことが原因のことが多いため、押す操作をご案内します。
+    const securityHint = isAutoStart
+      ? "ボタンかCtrl + Shift + Lをもう一度押してください。"
+      : window.isSecureContext
+        ? "ブラウザのクリップボード権限を許可してください。"
+        : "許可確認なしで使うには、入力欄を選択してCtrl+Vで貼り付けてください。";
     showError(`クリップボードを読み込めませんでした。${securityHint}`);
-    textInput.focus();
+    if (!isAutoStart) textInput.focus();
   } finally {
     clipboardButton.disabled = false;
     clipboardButton.innerHTML = '<span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>';
@@ -2162,7 +2165,53 @@ rateInput.addEventListener("input", () => {
 });
 
 speakButton.addEventListener("click", startReading);
-clipboardButton.addEventListener("click", readFromClipboard);
+clipboardButton.addEventListener("click", () => readFromClipboard());
+
+// ===== ショートカットキー（Ctrl + Shift + L） =====
+// 入力欄を触っていなくても、キーだけでクリップボードの読み上げを始められるようにします。
+// Webページはブラウザの外のキー操作を受け取れないため、他のアプリを使っている間も使いたい場合は
+// OS側のショートカットからこのページ（末尾に #clipboard を付けたURL）を開いてください。
+
+// Macでは Command + Shift + L も使えるようにします。
+// キーボードの配列によっては event.key が別の文字になるため、キーの位置（event.code）でも判定します。
+function isClipboardShortcut(event) {
+  if (!event.shiftKey || event.altKey) return false;
+  if (!event.ctrlKey && !event.metaKey) return false;
+  return event.key?.toLowerCase() === "l" || event.code === "KeyL";
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.repeat || !isClipboardShortcut(event)) return;
+
+  // ブラウザ側の割り当て（Firefoxの検索バーなど）より、こちらの読み上げを優先します。
+  event.preventDefault();
+
+  // パスワードの入力中と、読み取り・OCRの実行中は、二重に始めないようにします。
+  if (passwordDialog.open || clipboardButton.disabled) return;
+  readFromClipboard();
+});
+
+/**
+ * OSのショートカットなどから `#clipboard` 付きのURLで開かれたときは、そのまま読み上げを始めます。
+ * ブラウザによっては画面を一度も触っていない状態でクリップボードを読み取れないため、
+ * 読み取れなかった場合はボタンかCtrl + Shift + Lを押すようご案内します。
+ */
+function startFromUrlIfRequested() {
+  const wanted =
+    window.location.hash.toLowerCase() === "#clipboard" ||
+    new URLSearchParams(window.location.search).get("action") === "clipboard";
+  if (!wanted) return;
+
+  readFromClipboard(true);
+}
+
+// すでに開いているタブへ `#clipboard` 付きのURLを開いた場合は、読み込み直されないため、ここで受け取ります。
+window.addEventListener("hashchange", () => {
+  if (window.location.hash.toLowerCase() !== "#clipboard") return;
+  if (passwordDialog.open || clipboardButton.disabled) return;
+  readFromClipboard(true);
+});
+
 copyButton.addEventListener("click", () => copyTextToClipboard(textInput));
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
@@ -2202,6 +2251,7 @@ updateVoiceNote();
 if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) {
   loadVoices();
   synthesis.addEventListener("voiceschanged", loadVoices);
+  startFromUrlIfRequested();
 } else {
   speakButton.disabled = true;
   clipboardButton.disabled = true;
