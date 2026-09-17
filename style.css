@@ -538,10 +538,21 @@ input[type="range"] {
 }
 
 .controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.controls .button {
+  min-height: 42px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.download-controls {
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
-  gap: 12px;
   margin-top: 28px;
 }
 
@@ -608,7 +619,7 @@ input[type="range"] {
 }
 
 /* いま何をしているか（待機中・読み上げ中・エラーなど）を、画面の上のほうに出します。
-   ボタンの下では気づきにくいため、AI音声の切り替えのすぐ下に置いています。 */
+   操作ボタンと続けて確認できるよう、AI音声の切り替えのすぐ下に置いています。 */
 .status {
   min-height: 1.6em;
   margin: 0 0 14px;
@@ -906,14 +917,13 @@ input[type="range"] {
     padding: 17px;
   }
 
-  .controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
   .button-primary,
   .button-clipboard {
     grid-column: 1 / -1;
+  }
+
+  .controls .button-clipboard {
+    grid-column: auto;
   }
 
   .button-primary {
