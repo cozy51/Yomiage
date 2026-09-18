@@ -59,6 +59,15 @@ const MAX_FAILURE_STREAK = 4;
 const KEEP_ALIVE_INTERVAL = 10000;
 const RECOVERY_NOTICE_DURATION = 4000;
 
+// 読み上げを頼んでも音が出始めないことへの対策です。
+// 他のアプリが音声エンジンを使っている間や、直前のcancelの影響で、
+// speakを受け取ってもらえたまま発話が始まらないことがあります。
+const START_TIMEOUT_MS = 1600;
+// オンライン音声は音声データの取得に時間がかかるため、長めに待ちます。
+const REMOTE_START_TIMEOUT_MS = 5000;
+const START_RETRY_DELAY_MS = 250;
+const MAX_START_RETRIES = 2;
+
 // pause/resumeによる時間切れ対策はパソコン向けブラウザでのみ有効なため、端末を判定します。
 const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -87,6 +96,13 @@ let skipAttempts = 0;
 let failureStreak = 0;
 let hasSpokenAnything = false;
 let isRecovering = false;
+
+// 発話が実際に始まるまでを見張るための状態です。
+let startTimerId = 0;
+let startRetryCount = 0;
+let hasUtteranceStarted = false;
+let isWaitingForStart = false;
+let hasPrimedSynthesis = false;
 
 /**
  * ブラウザが提供する音声を取得し、日本語音声を先頭にして表示します。
@@ -354,6 +370,7 @@ function recoverFromInterruption(isError) {
   window.clearTimeout(restartTimerId);
   restartTimerId = window.setTimeout(() => {
     isRecovering = false;
+    startRetryCount = 0;
     if (!isReading || isPaused || activeSessionId !== sessionId) return;
 
     if (skipToNextChunk) {
@@ -395,6 +412,8 @@ function startPlaybackTimers() {
   // パソコン向けブラウザではpauseとresumeを続けて呼ぶことで、内部の時間切れを回避できます。
   keepAliveTimerId = window.setInterval(() => {
     if (!isReading || isPaused || isRecovering) return;
+    // まだ音が出ていない発話にpauseをかけると、そのまま始まらなくなることがあるため触りません。
+    if (!hasUtteranceStarted) return;
     if (isMobileBrowser) {
       synthesis.resume();
       return;
@@ -409,11 +428,82 @@ function stopPlaybackTimers() {
   window.clearInterval(keepAliveTimerId);
   window.clearTimeout(noticeTimerId);
   window.clearTimeout(restartTimerId);
+  window.clearTimeout(startTimerId);
   watchdogTimerId = 0;
   keepAliveTimerId = 0;
   noticeTimerId = 0;
   restartTimerId = 0;
+  startTimerId = 0;
   isRecovering = false;
+  isWaitingForStart = false;
+  hasUtteranceStarted = false;
+}
+
+/**
+ * 音声エンジンは最初の1回だけ起動に時間がかかり、読み上げ開始が遅れることがあります。
+ * 画面を最初に触った時点で音量0の発話を通し、エンジンを先に起こしておきます。
+ * 読み上げボタン自体の操作では行いません（直後のcancelが本来の発話を打ち消すため）。
+ */
+function primeSpeechSynthesis() {
+  if (hasPrimedSynthesis || isReading) return;
+  hasPrimedSynthesis = true;
+  try {
+    const warmUp = new SpeechSynthesisUtterance("\u3000");
+    warmUp.volume = 0;
+    warmUp.lang = "ja-JP";
+    synthesis.speak(warmUp);
+  } catch (error) {
+    console.warn("音声エンジンの事前準備に失敗しました。", error);
+  }
+}
+
+// ブラウザ側が一時停止のまま残っていると、次のspeakが受け取られても始まりません。
+function releasePendingPause() {
+  if (synthesis && synthesis.paused) synthesis.resume();
+}
+
+/**
+ * 実際に音が出始めたことを記録し、開始待ちの見張りを解除します。
+ * onstartが届かないブラウザもあるため、読み上げ位置の通知や終了でも呼びます。
+ */
+function markUtteranceStarted() {
+  window.clearTimeout(startTimerId);
+  startTimerId = 0;
+  hasUtteranceStarted = true;
+  startRetryCount = 0;
+
+  if (!isWaitingForStart) return;
+  isWaitingForStart = false;
+  if (isReading && !isPaused) updateControls("speaking");
+}
+
+/**
+ * speakを受け取ってもらえたのに音が出ないときは、音声エンジンを解除してから読み上げ直します。
+ * 他のアプリが音声を使っている間などに、最初の発話だけが始まらないまま止まることがあります。
+ * 何度やり直しても始まらない場合は、少し先から読み直す通常の復帰処理に任せます。
+ */
+function retryStalledStart(activeSessionId, startOffset) {
+  if (startRetryCount >= MAX_START_RETRIES) {
+    recoverFromInterruption(false);
+    return;
+  }
+
+  startRetryCount += 1;
+  isRecovering = true;
+  isWaitingForStart = false;
+  // 始まらなかった発話に紐づくイベントを無効化してから、読み上げを解除します。
+  utteranceId += 1;
+  synthesis.resume();
+  synthesis.cancel();
+  showRecoveryNotice("音声がすぐに始まらないため、読み上げをやり直します");
+
+  // cancel直後のspeakは無視されることがあるため、少しだけ間をあけてから読み上げ直します。
+  window.clearTimeout(restartTimerId);
+  restartTimerId = window.setTimeout(() => {
+    isRecovering = false;
+    if (!isReading || isPaused || activeSessionId !== sessionId) return;
+    speakCurrentChunk(activeSessionId, startOffset);
+  }, START_RETRY_DELAY_MS);
 }
 
 // 現在のチャンクをstartOffset文字目から読み上げます。完了すると次のチャンクへ進みます。
@@ -480,6 +570,13 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   const isStaleUtterance = () => !isReading || activeSessionId !== sessionId || activeUtteranceId !== utteranceId;
 
+  // 実際に音が出始めた時点を基準にすることで、準備待ちの時間を停止検知に含めません。
+  utterance.onstart = () => {
+    if (isStaleUtterance()) return;
+    lastProgressAt = Date.now();
+    markUtteranceStarted();
+  };
+
   // ブラウザから読み上げ位置が通知されるたび、該当する語句を強調します。
   // charIndexは発話に渡した部分文字列を基準とするため、safeStartOffset分を足して元の文字列上の位置に直します。
   utterance.onboundary = (event) => {
@@ -492,6 +589,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
     lastProgressAt = now;
     failureStreak = 0;
     hasSpokenAnything = true;
+    markUtteranceStarted();
 
     // ハイライト位置は単語の先頭へ戻ることがあるため、到達位置は別に記録します。
     const spokenOffset = safeStartOffset + event.charIndex;
@@ -504,6 +602,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   utterance.onend = () => {
     if (isStaleUtterance()) return;
+    markUtteranceStarted();
     hasSpokenAnything = true;
     currentChunkIndex += 1;
     currentChunkOffset = 0;
@@ -523,7 +622,28 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
     recoverFromInterruption(true);
   };
 
+  // まだ一度も音が出ていないときは、準備中であることを画面へ出します。
+  // やり直し中は、その案内を消さないようにします。
+  if (!hasSpokenAnything && startRetryCount === 0) {
+    isWaitingForStart = true;
+    statusText.classList.remove("error");
+    statusText.textContent = "音声の準備をしています…";
+  }
+
+  hasUtteranceStarted = false;
+  releasePendingPause();
   synthesis.speak(utterance);
+
+  // 読み上げを頼んでも音が出始めないことがあるため、一定時間で見張ってやり直します。
+  const startLimitMs = selectedVoice && selectedVoice.localService === false
+    ? REMOTE_START_TIMEOUT_MS
+    : START_TIMEOUT_MS;
+  window.clearTimeout(startTimerId);
+  startTimerId = window.setTimeout(() => {
+    startTimerId = 0;
+    if (isStaleUtterance() || isPaused || isRecovering || hasUtteranceStarted) return;
+    retryStalledStart(activeSessionId, safeStartOffset);
+  }, startLimitMs);
 }
 
 // 新しい読み上げを始める前に、必ず現在の読み上げを停止します。
@@ -614,6 +734,9 @@ function startSpeaking() {
     return;
   }
 
+  // 前の読み上げがブラウザ内部で一時停止のまま残っていると、次のspeakが始まりません。
+  // cancelの前にresumeして、その状態を確実に解除します。
+  synthesis.resume();
   synthesis.cancel();
   sessionId += 1;
   const realChunks = splitText(text);
@@ -625,6 +748,9 @@ function startSpeaking() {
   recoveryOffset = -1;
   skipAttempts = 0;
   failureStreak = 0;
+  startRetryCount = 0;
+  hasUtteranceStarted = false;
+  isWaitingForStart = false;
   hasSpokenAnything = false;
   isReading = true;
   isPaused = false;
@@ -670,7 +796,10 @@ function stopSpeaking(showIdleState = true) {
   recoveryOffset = -1;
   skipAttempts = 0;
   failureStreak = 0;
+  startRetryCount = 0;
   stopPlaybackTimers();
+  // 一時停止のまま解除すると、その状態がブラウザ側に残ることがあります。
+  synthesis.resume();
   synthesis.cancel();
   stopAiPlayback();
   currentSection.hidden = true;
@@ -1744,6 +1873,15 @@ function unlockAudioPlayback() {
 document.addEventListener("pointerdown", unlockAudioPlayback, { once: true });
 document.addEventListener("keydown", unlockAudioPlayback, { once: true });
 
+// ブラウザの音声エンジンも、同じく最初の操作のときに起こしておきます。
+// 読み上げボタンの操作では行いません（直後のcancelが本来の発話を打ち消すため）。
+["pointerdown", "keydown"].forEach((eventName) => {
+  document.addEventListener(eventName, (event) => {
+    if (event.target instanceof Element && event.target.closest("#speak-button, #clipboard-button")) return;
+    primeSpeechSynthesis();
+  }, { capture: true, passive: true });
+});
+
 function playAudioPlayer() {
   const played = audioPlayer.play();
   if (!played?.catch) return;
@@ -2189,6 +2327,12 @@ currentSection.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   togglePause();
+});
+
+// 他のタブやアプリから戻ったとき、ブラウザ側が一時停止のまま固まっていることがあります。
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !isReading || isPaused || isAiPlayback) return;
+  releasePendingPause();
 });
 
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
