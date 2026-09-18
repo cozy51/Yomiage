@@ -13,6 +13,8 @@ const speakButton = document.getElementById("speak-button");
 const clipboardButton = document.getElementById("clipboard-button");
 const copyButton = document.getElementById("copy-button");
 const pauseButton = document.getElementById("pause-button");
+const prevButton = document.getElementById("prev-button");
+const nextButton = document.getElementById("next-button");
 const stopButton = document.getElementById("stop-button");
 const downloadButton = document.getElementById("download-button");
 const statusText = document.getElementById("status");
@@ -59,6 +61,10 @@ const MAX_FAILURE_STREAK = 4;
 const KEEP_ALIVE_INTERVAL = 10000;
 const RECOVERY_NOTICE_DURATION = 4000;
 
+// ページ送りは、続けて押されたときにまとめて処理します。
+// 押すたびに読み上げ直すと、そのたびに音声の準備が入って追いつかなくなるためです。
+const JUMP_DELAY_MS = 250;
+
 // 読み上げを頼んでも音が出始めないことへの対策です。
 // 他のアプリが音声エンジンを使っている間や、直前のcancelの影響で、
 // speakを受け取ってもらえたまま発話が始まらないことがあります。
@@ -103,6 +109,10 @@ let startRetryCount = 0;
 let hasUtteranceStarted = false;
 let isWaitingForStart = false;
 let hasPrimedSynthesis = false;
+
+// ページ送りで移動する先です。まとめて処理するまでの間だけ使います。
+let jumpTimerId = 0;
+let pendingChunkIndex = -1;
 
 /**
  * ブラウザが提供する音声を取得し、日本語音声を先頭にして表示します。
@@ -256,6 +266,86 @@ function renderProgressDots(current, total) {
   progressText.replaceChildren(fragment);
 }
 
+/**
+ * ページ送りの対象になっているページ番号（0から数えます）を返します。
+ * 続けて押されているあいだは、まだ読み上げていない移動先を基準にします。
+ */
+function getDisplayChunkIndex() {
+  return pendingChunkIndex >= 0 ? pendingChunkIndex : currentChunkIndex;
+}
+
+// ページ送りはブラウザの音声のときだけ使えます。
+// AI音声は1ページずつ音声を作って再生しているため、対象外にしています。
+function canJumpChunks() {
+  return isReading && !isAiPlayback && realChunkCount > 1;
+}
+
+// いまの位置に合わせて、前へ・次へのボタンを押せるかどうかを切り替えます。
+function updatePageButtons() {
+  const enabled = canJumpChunks();
+  const index = getDisplayChunkIndex();
+  prevButton.disabled = !enabled || index <= 0;
+  nextButton.disabled = !enabled || index >= realChunkCount - 1;
+}
+
+/**
+ * ページ送りで、stepページ分だけ移動した位置から読み上げ直します。
+ * 押した手応えがすぐ分かるよう、文章とドットの表示だけ先に切り替え、
+ * 読み上げ直しは続けて押されても追いつけるよう少し待ってから行います。
+ */
+function jumpChunks(step) {
+  if (!canJumpChunks()) return;
+
+  const target = Math.min(Math.max(getDisplayChunkIndex() + step, 0), realChunkCount - 1);
+  if (target === getDisplayChunkIndex()) return;
+
+  pendingChunkIndex = target;
+  renderCurrentText(chunks[target]);
+  renderProgressDots(target + 1, realChunkCount);
+  updatePageButtons();
+
+  window.clearTimeout(jumpTimerId);
+  jumpTimerId = window.setTimeout(() => {
+    jumpTimerId = 0;
+    const index = pendingChunkIndex;
+    pendingChunkIndex = -1;
+    if (!isReading || index < 0) return;
+    startFromChunk(index);
+  }, JUMP_DELAY_MS);
+}
+
+/**
+ * 指定したページの先頭から読み上げ直します。
+ * 一時停止中は音を出さず、位置だけ移して、再開のときにその場所から読み上げます。
+ */
+function startFromChunk(index) {
+  currentChunkIndex = index;
+  currentChunkOffset = 0;
+  recoveryOffset = -1;
+  skipAttempts = 0;
+  failureStreak = 0;
+  startRetryCount = 0;
+  updatePageButtons();
+  if (isPaused) return;
+
+  // いまの発話に紐づくイベントを無効化してから、読み上げを解除します。
+  utteranceId += 1;
+  synthesis.resume();
+  synthesis.cancel();
+  startPlaybackTimers();
+  updateControls("speaking");
+
+  // cancel直後のspeakは無視されることがあるため、少しだけ間をあけてから読み上げます。
+  const activeSessionId = sessionId;
+  isRecovering = true;
+  window.clearTimeout(restartTimerId);
+  restartTimerId = window.setTimeout(() => {
+    isRecovering = false;
+    if (!isReading || isPaused || activeSessionId !== sessionId) return;
+    speakCurrentChunk(activeSessionId);
+  }, RESTART_DELAY_MS);
+}
+
 // boundaryイベントの位置から、日本語の単語として強調する範囲を求めます。
 function getHighlightRange(text, charIndex, charLength) {
   const start = Math.max(0, Math.min(charIndex, text.length));
@@ -296,8 +386,8 @@ function updateControls(state) {
   if (state === "finished") statusText.textContent = "読み上げが完了しました";
 
   currentSection.classList.toggle("is-paused", paused);
-  currentSection.setAttribute("aria-pressed", String(paused));
   currentTitleText.textContent = paused ? "一時停止中" : "現在読み上げ中";
+  updatePageButtons();
 }
 
 function showError(message) {
@@ -429,11 +519,14 @@ function stopPlaybackTimers() {
   window.clearTimeout(noticeTimerId);
   window.clearTimeout(restartTimerId);
   window.clearTimeout(startTimerId);
+  window.clearTimeout(jumpTimerId);
   watchdogTimerId = 0;
   keepAliveTimerId = 0;
   noticeTimerId = 0;
   restartTimerId = 0;
   startTimerId = 0;
+  jumpTimerId = 0;
+  pendingChunkIndex = -1;
   isRecovering = false;
   isWaitingForStart = false;
   hasUtteranceStarted = false;
@@ -559,6 +652,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   const initialRange = getHighlightRange(activeChunk, safeStartOffset, 0);
   renderCurrentText(activeChunk, initialRange.start, initialRange.length);
+  updatePageButtons();
   if (currentChunkIndex < realChunkCount) {
     renderProgressDots(currentChunkIndex + 1, realChunkCount);
   } else {
@@ -2318,15 +2412,38 @@ document.addEventListener("pointerdown", (event) => {
 
 // ポップアップ内をクリック（タップ）すると、一時停止・再生をトグルします。
 // テキスト選択（コピー目的のドラッグ操作）の直後は誤動作を避けるため無視します。
-currentSection.addEventListener("click", () => {
+currentSection.addEventListener("click", (event) => {
+  // ページ送りのボタンを押したときは、一時停止の切り替えをしません。
+  if (event.target instanceof Element && event.target.closest("button")) return;
   if (window.getSelection()?.toString()) return;
   togglePause();
 });
 
 currentSection.addEventListener("keydown", (event) => {
+  // ポップアップ自体を選んでいるときだけ受け付けます（ボタン上での操作と重ならないようにします）。
+  if (event.target !== currentSection) return;
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   togglePause();
+});
+
+// 長い文章を読み飛ばせるよう、ページ単位で前後へ移動できるようにします。
+prevButton.addEventListener("click", () => jumpChunks(-1));
+nextButton.addEventListener("click", () => jumpChunks(1));
+
+/**
+ * キーボードの左右キーでもページ送りができるようにします。
+ * 入力欄・速度の調整・パスワード入力など、キーに別の役割がある場所では邪魔をしません。
+ */
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (!canJumpChunks()) return;
+  if (event.target instanceof Element
+    && event.target.closest("input, textarea, select, dialog, [contenteditable=''], [contenteditable='true']")) return;
+
+  event.preventDefault();
+  jumpChunks(event.key === "ArrowRight" ? 1 : -1);
 });
 
 // 他のタブやアプリから戻ったとき、ブラウザ側が一時停止のまま固まっていることがあります。
