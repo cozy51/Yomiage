@@ -178,11 +178,19 @@
       </div>
     </section>
 
-    <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" role="button" aria-pressed="false" hidden>
+    <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" hidden>
       <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span><span id="current-source" class="current-chip"></span><span id="current-ai" class="current-chip current-ai"></span></h2>
       <p id="current-text"></p>
-      <div id="progress-text" class="progress-text"></div>
-      <p class="current-hint">タップまたはクリックで一時停止 / 再生</p>
+      <div class="page-nav">
+        <button id="prev-button" class="page-button" type="button" aria-label="前のページへ" title="前のページへ（←キー）" disabled>
+          <span aria-hidden="true">◀</span>
+        </button>
+        <div id="progress-text" class="progress-text"></div>
+        <button id="next-button" class="page-button" type="button" aria-label="次のページへ" title="次のページへ（→キー）" disabled>
+          <span aria-hidden="true">▶</span>
+        </button>
+      </div>
+      <p class="current-hint">タップまたはクリックで一時停止 / 再生<br>◀ ▶ または ← → キーでページ送り</p>
     </section>
 
     <dialog id="password-dialog" class="password-dialog" aria-labelledby="password-title">
