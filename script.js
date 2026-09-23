@@ -953,18 +953,28 @@ function stripMarkdownNoise(text) {
 // 画面の折り返しで入った改行を、続きの文としてつなぎ直すための設定です。
 // 文の終わりの記号で終わる行のあとと、次の行が続きに見えない場合は、改行をそのまま残します。
 const SENTENCE_END_PATTERN = /[。．.！!？?：:；;」』】〉》〕］）)]$/;
-// 行のはじめが日本語・小文字の英字・閉じ括弧・句読点なら、前の行からの続きとみなします。
+// 行のはじめが日本語・小文字の英字・括弧・句読点なら、前の行からの続きとみなします。
 // 大文字や数字で始まる行は、一覧の項目や見出しであることが多いため続きとみなしません。
-const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．」』）)]/u;
+const CONTINUATION_START_PATTERN = /^[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}ー々〆a-z、。，．「『（(」』）)]/u;
 const LIST_START_PATTERN = /^(?:[-–—*+•・●○◆■□▲▼※＊]|\d{1,3}[.．)）、]|[(（]\d{1,3}[)）])/;
 // 見出しのような短い行は、折り返しではないとみなして改行を残します。
 const WRAPPED_LINE_MIN_LENGTH = 12;
 // 読点で終わる行は文の途中なので、長さにかかわらず次の行が続きます。
 const CONTINUING_END_PATTERN = /[、，,]$/;
-// 折り返しで入った改行は、行が表示の幅いっぱいまで届いたところに入ります。
-// いちばん長い行を表示の幅とみなし、そこに近い長さの行だけを「続きがある行」とみなします。
+// 折り返しで入った改行は、行が表示の幅いっぱいまで届いたところに入ります（段落の最初の行は字下げの分だけ短くなります）。
+// 多くの行が届いている長さを表示の幅とみなし、そこに近い長さの行だけを「続きがある行」とみなします。
 // これで、本文と同じくらいの長さでも幅に届かない見出しの改行を残せます。
-const WRAPPED_LINE_WIDTH_RATIO = 0.9;
+const WRAPPED_LINE_WIDTH_RATIO = 0.8;
+// いちばん長い行を幅にすると、AIのOCRが一部の段落だけを1行にまとめたときに幅が大きくなりすぎ、
+// ほかの折り返しをつなげなくなります。そこで、長さの順で上から4分の1あたりの行を表示の幅とします。
+const WRAP_WIDTH_PERCENTILE = 0.75;
+
+// 折り返しの幅を、行の長さの分布から求めます。飛び抜けて長い行があっても影響を受けにくくします。
+function estimateWrapWidth(lines) {
+  const widths = lines.filter((line) => line !== "").map(measureTextWidth).sort((a, b) => a - b);
+  if (widths.length === 0) return 0;
+  return widths[Math.min(widths.length - 1, Math.floor(widths.length * WRAP_WIDTH_PERCENTILE))];
+}
 
 // 行の見た目の幅を測ります。英数字・記号は日本語の文字の半分の幅として数えます。
 function measureTextWidth(line) {
@@ -982,8 +992,8 @@ function measureTextWidth(line) {
  */
 function joinWrappedLines(text, { joinAcrossEmptyLines = true } = {}) {
   const lines = text.split("\n").map((line) => line.trim());
-  // 折り返しの幅は文章ごとに違うため、いちばん長い行の幅から求めます。
-  const wrapWidth = Math.max(...lines.map(measureTextWidth), 0) * WRAPPED_LINE_WIDTH_RATIO;
+  // 折り返しの幅は文章ごとに違うため、行の長さの分布から求めます。
+  const wrapWidth = estimateWrapWidth(lines) * WRAPPED_LINE_WIDTH_RATIO;
   const joinedLines = [];
   // 空行はこのあとの整形でどのみち取り除かれるため、区切りとして見るかどうかだけを覚えておきます。
   let hasEmptyLineBefore = false;
