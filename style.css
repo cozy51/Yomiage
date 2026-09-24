@@ -635,7 +635,7 @@ input[type="range"] {
 
 .current-card {
   position: fixed;
-  top: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   z-index: 100;
   width: min(820px, calc(100% - 32px));
@@ -645,7 +645,7 @@ input[type="range"] {
   border: 2px solid #bfdbfe;
   background: var(--primary-soft);
   box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   animation: current-card-in .2s ease-out;
   cursor: pointer;
   transition: background-color .15s, border-color .15s;
@@ -661,8 +661,8 @@ input[type="range"] {
 }
 
 @keyframes current-card-in {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
-  to { opacity: 1; transform: translate(-50%, -50%); }
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translateX(-50%); }
 }
 
 .current-card h2 {
@@ -985,6 +985,7 @@ input[type="range"] {
   }
 
   .current-card {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: calc(100% - 20px);
     max-height: calc(100vh - 24px);
   }
