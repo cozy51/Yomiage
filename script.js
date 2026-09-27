@@ -170,11 +170,19 @@ function replaceUnsafeSymbols(text) {
 }
 
 /**
+ * バッククォート（`）は「アクサングラーブ」などと読み上げられて聞き取りにくいため、
+ * 読み上げる文章から取り除きます（例：`PSET` → PSET）。
+ */
+function removeBackquotes(text) {
+  return text.replace(/[`｀]/g, "");
+}
+
+/**
  * 長文が途中で止まりにくいよう、句読点や改行を優先して分割します。
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(text.replace(/\r\n?/g, "\n")).trim();
+  const normalized = replaceUnsafeSymbols(removeBackquotes(text.replace(/\r\n?/g, "\n"))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
