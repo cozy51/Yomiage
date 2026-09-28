@@ -178,11 +178,36 @@ function removeBackquotes(text) {
 }
 
 /**
+ * ChatGPTなどからコピーした文章に残る、出典リンク用の制御文字列を取り除きます。
+ * 読み上げても意味がわからないため、読み上げる文章から除外します。
+ * 例：:chatgpt-content-reference{index="3"}、::contentReference[oaicite:3]{index=3}、
+ *     【3†source】、citeturn0search3、出典チップの「マイナビジョブ +1」
+ */
+function removeCitationMarkers(text) {
+  return text
+    // :chatgpt-content-reference{index="3"} のような指示記法
+    .replace(/:{1,2}chatgpt-[\w-]*(?:\[[^\]\n]*\])?(?:\{[^}\n]*\})?/gi, "")
+    // ::contentReference[oaicite:3]{index=3} のような参照記法
+    .replace(/:{0,2}contentReference\[[^\]\n]*\](?:\{[^}\n]*\})?/gi, "")
+    .replace(/\[oaicite:\d+\]/gi, "")
+    // 【3†source】【4:0†資料.pdf】 のような出典番号
+    .replace(/【[^【】\n]*†[^【】\n]*】/g, "")
+    // 私用領域の文字で囲まれた出典（コピー時に「citeturn0search3」の形で残るもの）
+    .replace(/\uE200[^\uE201\n]*\uE201/g, "")
+    .replace(/[\uE200-\uE2FF]/g, "")
+    .replace(/\b(?:cite|filecite|navlist|entity)(?:turn\d+[a-z]+\d+)+/gi, "")
+    // 文末の後ろに付く出典チップ（例：「。 マイナビジョブ +1」）
+    .replace(/([。．！？!?])[ \t\u3000]*[^\s。、．！？!?+\d][^\s。、．！？!?+]{0,39}[ \t\u3000]+\+\d+(?=\s|$)/g, "$1")
+    // 文末の直前に付く出典チップ（例：「になります マイナビジョブ +1。」）
+    .replace(/[ \t\u3000]+[^\s。、．！？!?+\d][^\s。、．！？!?+]{1,39}[ \t\u3000]+\+\d+(?=[。．！？])/g, "");
+}
+
+/**
  * 長文が途中で止まりにくいよう、句読点や改行を優先して分割します。
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(removeBackquotes(text.replace(/\r\n?/g, "\n"))).trim();
+  const normalized = replaceUnsafeSymbols(removeBackquotes(removeCitationMarkers(text.replace(/\r\n?/g, "\n")))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
