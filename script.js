@@ -178,6 +178,23 @@ function removeBackquotes(text) {
 }
 
 /**
+ * Markdownの表の縦線（|）は「パイプ」と何度も読み上げられて聞き取りにくいため、
+ * 読み上げる文章から取り除きます。区切り行（|---|---|）は行ごと削除し、
+ * 行頭・行末の縦線は消して、セルの間の縦線は読点に置き換えて間を取ります。
+ * 例：| 判定 | 完了／NG | → 判定、完了／NG
+ */
+function removeTablePipes(text) {
+  return text
+    .split("\n")
+    .filter((line) => !/^[ \t\u3000]*[|｜]?(?:[ \t\u3000]*:?-{2,}:?[ \t\u3000]*[|｜])+[ \t\u3000]*(?::?-{2,}:?[ \t\u3000]*)?$/.test(line))
+    .map((line) => line
+      .replace(/^(?:[ \t\u3000]*[|｜])+[ \t\u3000]*/, "")
+      .replace(/(?:[ \t\u3000]*[|｜])+[ \t\u3000]*$/, "")
+      .replace(/(?:[ \t\u3000]*[|｜][ \t\u3000]*)+/g, "、"))
+    .join("\n");
+}
+
+/**
  * ChatGPTなどからコピーした文章に残る、出典リンク用の制御文字列を取り除きます。
  * 読み上げても意味がわからないため、読み上げる文章から除外します。
  * 例：:chatgpt-content-reference{index="3"}、::contentReference[oaicite:3]{index=3}、
@@ -207,7 +224,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(removeBackquotes(removeCitationMarkers(text.replace(/\r\n?/g, "\n")))).trim();
+  const normalized = replaceUnsafeSymbols(removeBackquotes(removeTablePipes(removeCitationMarkers(text.replace(/\r\n?/g, "\n"))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
