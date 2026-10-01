@@ -268,11 +268,22 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 
 使える設定はモデルの世代で違うため、モデル名を見て切り替えます。Gemini 3.8 より前のモデルには `temperature: 0` を、3.8 以降のモデルには `temperature` のかわりに「考える深さ」（`thinkingLevel`。高精度OCR・要約・翻訳は `low`、詳細要約は `medium`）を渡します。やり直しや代わりのモデルの分も時間がかかるため、`api/ocr.js`・`api/ai.js` の処理時間は60秒（`vercel.json`）、Geminiを待つ時間は50秒（`GEMINI_TIMEOUT_MS`）にしています。
 
-Gemini側が一時的に混み合っている（503など）ときは、少し待って同じモデルで2回までやり直し、それでもだめなときは代わりのモデルで試します。利用上限（429）に達したときは、上限がモデルごとに別々のため、すぐに代わりのモデルで試します。代わりのモデルでも上限のときは、Geminiが示す待ち時間が15秒以内なら待ってやり直します。代わりのモデルは、文章が `FALLBACK_GEMINI_MODEL` = `gemini-3.8-flash`、音声が `FALLBACK_GEMINI_TTS_MODEL` = `gemini-3.8-flash-tts` です。どれも `api/_gemini.js` で設定しています。
+Gemini側が一時的に混み合っている（503など）ときは、少し待って同じモデルで2回までやり直し、それでもだめなときは代わりのモデルで試します。利用上限（429）に達したときは、上限がモデルごとに別々のため、すぐに代わりのモデルで試します。代わりのモデルでも上限のときは、Geminiが示す待ち時間が15秒以内なら待ってやり直します。代わりのモデルは、画面の「AIモデル」で選ばなかった方のモデルです（廉価モデル優先なら `gemini-3.8-flash` ／ 音声 `gemini-3.8-flash-tts`、通常モデル優先なら `gemini-3.5-flash-lite` ／ 音声 `gemini-3.1-flash-tts-preview`）。どれも `api/_gemini.js` で設定しています。
 
 音声を作るモデルは別で、`api/_gemini.js` の `DEFAULT_GEMINI_TTS_MODEL`（初期値 `gemini-3.1-flash-tts-preview`）で管理しています。環境変数 `GEMINI_TTS_MODEL` を設定した場合は、そちらが優先されます。
 
 Vercelの環境変数に `GEMINI_MODEL` を設定した場合は、そちらが優先されます。コードを変えずに別のモデルを試したいときに使えます（`Settings` → `Environment Variables` で `GEMINI_MODEL` を追加し、再デプロイしてください）。値が空のときや使えない形のときは、`DEFAULT_GEMINI_MODEL` に戻ります。
+
+### AIモデルの優先（通常モデル優先／廉価モデル優先）
+
+設定欄の上の「AIモデル」で、どちらのモデルを先に使うかを選べます。選んだ内容はブラウザに保存され、次に開いたときもそのまま使えます（初期値は「廉価モデル優先」）。
+
+| 選択 | 最初に使うモデル | 混み合っている・上限に達したときの切替先 |
+| --- | --- | --- |
+| 通常モデル優先（品質重視） | `gemini-3.8-flash` ／ 音声 `gemini-3.8-flash-tts` | `gemini-3.5-flash-lite` ／ 音声 `gemini-3.1-flash-tts-preview` |
+| 廉価モデル優先（安価・混雑に強い） | `gemini-3.5-flash-lite` ／ 音声 `gemini-3.1-flash-tts-preview` | `gemini-3.8-flash` ／ 音声 `gemini-3.8-flash-tts` |
+
+画面は選んだ内容を `modelPriority`（`standard` / `economy`）として `/api/ocr`・`/api/ai`・`/api/tts` へ送り、サーバー側（`api/_gemini.js` の `getTextModels` / `getTtsModels`）が使う順番を決めます。通常モデルは `STANDARD_GEMINI_MODEL` / `STANDARD_GEMINI_TTS_MODEL` で設定しています。切り替えると、要約・翻訳の結果やAI音声は、選んだモデルで作り直します。
 
 読み上げのたびに、状態表示（「読み上げが完了しました」など）のすぐ下へ、**実際に使ったモデル**を小さく表示します（例：「使用モデル　要約：gemini-3.5-flash-lite／音声：gemini-3.1-flash-tts-preview」）。混み合っていて代わりのモデルへ切り替えたときは「（混雑のため切替）」と添えます。AIを使わなかったときは表示しません。
 

@@ -135,7 +135,7 @@ module.exports = async function handler(request, response) {
     const { text, model } = await generateText(apiKey, [
       { text: OCR_PROMPT },
       { inline_data: { mime_type: mimeType, data: image } },
-    ]);
+    ], { priority: body?.modelPriority });
 
     if (!text) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });

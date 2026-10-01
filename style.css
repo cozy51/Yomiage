@@ -470,6 +470,68 @@ select:focus {
   text-align: center;
 }
 
+/* AIのどちらのモデルを先に使うかの選択です。2つを横に並べます。 */
+.model-priority {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 26px 0 0;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.model-priority legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.model-priority-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.model-priority-option:has(input:checked) {
+  background: var(--primary-soft);
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.model-priority-option input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+
+.model-priority-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.model-priority-title {
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.model-priority-note {
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+/* 選択のすぐ下に続くため、設定欄との間を詰めます。 */
+.model-priority + .settings {
+  margin-top: 14px;
+}
+
 .settings {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(240px, 1fr);

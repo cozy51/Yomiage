@@ -181,7 +181,9 @@ module.exports = async function handler(request, response) {
   try {
     // 詳細要約は、理由や具体例を整理する必要があるため、少し深く考えさせます。
     const thinkingLevel = action === "summarize-detail" ? "medium" : "low";
-    let { text: result, model } = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel });
+    // 画面で選んだ「どちらのモデルを先に使うか」です。
+    const priority = body?.modelPriority;
+    let { text: result, model } = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel, priority });
 
     if (!result) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
@@ -198,6 +200,7 @@ module.exports = async function handler(request, response) {
       const { text: retryResult, model: retryModel } = await generateText(apiKey, [{ text: userText }], {
         systemInstruction: retryInstruction,
         thinkingLevel,
+        priority,
         timeoutMs: remainingMs,
       });
 

@@ -5,7 +5,8 @@
  *
  * モデル名は秘密の情報ではないため、パスワード認証なしで返します（APIキーは返しません）。
  * 環境変数 GEMINI_MODEL / GEMINI_TTS_MODEL を設定している場合は、その値を返します。
- * 混み合っているときや利用上限に達したときに切り替える「代わりのモデル」も返します（ないときは空です）。
+ * 「廉価モデル優先」「通常モデル優先」のそれぞれで、使う順番どおりにモデル名を返します。
+ * 2番目は、混み合っているときや利用上限に達したときに切り替える「代わりのモデル」です（ないときはありません）。
  */
 
 const { getTextModels, getTtsModels } = require("./_gemini");
@@ -17,7 +18,6 @@ module.exports = function handler(request, response) {
   }
 
   response.setHeader("Cache-Control", "no-store");
-  const [text, textFallback = ""] = getTextModels();
-  const [tts, ttsFallback = ""] = getTtsModels();
-  return response.status(200).json({ text, tts, textFallback, ttsFallback });
+  const describe = (priority) => ({ text: getTextModels(priority), tts: getTtsModels(priority) });
+  return response.status(200).json({ economy: describe("economy"), standard: describe("standard") });
 };
