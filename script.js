@@ -838,6 +838,36 @@ function updateCurrentChips() {
   currentAi.title = aiTitle;
   currentAi.classList.toggle("is-ai", aiLabel !== "AIなし");
   currentAi.setAttribute("aria-label", aiTitle);
+  updateUsedModel();
+}
+
+/**
+ * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名を小さく表示します。
+ * 混み合っていて代わりのモデルへ切り替えたときは、そのことも添えます。
+ * AIを使っていないときは表示しません。
+ */
+function updateUsedModel() {
+  const usedModelText = document.getElementById("used-model");
+  const primaryTextModel = document.getElementById("model-text").textContent;
+  const primaryTtsModel = document.getElementById("model-tts").textContent;
+  const describe = (model, primary) => (primary && model !== primary ? `${model}（混雑のため切替）` : model);
+  const parts = [];
+
+  const aiMode = getTextAiMode();
+  const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
+  if (usesAiResult && aiResultModel) {
+    const label = aiMode === "translate" ? "翻訳" : aiMode === "summarize-detail" ? "詳細要約" : "要約";
+    parts.push(`${label}：${describe(aiResultModel, primaryTextModel)}`);
+  } else if (inputSourceKind === "image" && ocrEngineUsed === "ai" && ocrModelUsed) {
+    parts.push(`読取：${describe(ocrModelUsed, primaryTextModel)}`);
+  }
+
+  if (isAiPlayback && aiTtsModelsUsed.size) {
+    parts.push(`音声：${[...aiTtsModelsUsed].map((model) => describe(model, primaryTtsModel)).join("・")}`);
+  }
+
+  usedModelText.textContent = parts.length ? `使用モデル　${parts.join("／")}` : "";
+  usedModelText.hidden = !parts.length;
 }
 
 /**
@@ -1617,7 +1647,8 @@ async function recognizeWithGemini(file) {
       throw createOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
     }
 
-    // 読み取った文章だけを受け取ります。
+    // 読み取った文章と、使ったモデル名を受け取ります。
+    lastAiOcrModel = typeof result.model === "string" ? result.model : "";
     return result.text;
   } finally {
     window.clearTimeout(timeoutId);
@@ -1637,6 +1668,8 @@ const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
 let aiResultSource = "";
+// AIの結果を作ったときに、実際に使ったモデル名です。
+let aiResultModel = "";
 let aiResultMode = "";
 let aiResultLanguage = "";
 
@@ -1660,10 +1693,14 @@ function getProcessModeFullLabel() {
  */
 let inputSourceKind = "text";
 let ocrEngineUsed = "";
+// AIで画像を読み取ったときに、実際に使ったモデル名です。
+let lastAiOcrModel = "";
+let ocrModelUsed = "";
 
 function markInputSource(kind, ocrEngine = "") {
   inputSourceKind = kind;
   ocrEngineUsed = ocrEngine;
+  ocrModelUsed = ocrEngine === "ai" ? lastAiOcrModel : "";
 }
 
 function usesAiOcr() {
@@ -1817,7 +1854,7 @@ async function requestAiText(mode, text) {
     }
 
     // unchangedは、AIが原文をそのまま返したことを示す印です。
-    return { text: result.text, unchanged: Boolean(result.unchanged) };
+    return { text: result.text, unchanged: Boolean(result.unchanged), model: typeof result.model === "string" ? result.model : "" };
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -1850,6 +1887,7 @@ async function applyAiMode(mode) {
     showAiResult(cleanedText, mode, processed.unchanged);
     // 同じ文章・同じモードのときは、二度AIへ送らないように覚えておきます。
     aiResultSource = sourceText;
+    aiResultModel = processed.model;
     aiResultMode = mode;
     aiResultLanguage = translateLanguage.value;
     return true;
@@ -1943,6 +1981,8 @@ audioPlayer.preload = "auto";
 // いまの読み上げがAI音声かどうかと、そのときだけ使う状態です。
 let isAiPlayback = false;
 let aiVoiceUsed = "";
+// AI音声を作ったときに、実際に使ったモデル名です（区切りごとに作るため、切り替わると複数になります）。
+let aiTtsModelsUsed = new Set();
 let aiAudioUrl = "";
 // 保存用に、作った音声（PCM）を読み上げた順にためます。
 let aiAudioParts = [];
@@ -2077,6 +2117,7 @@ async function startAiSpeaking(text) {
   hasSpokenAnything = false;
   aiAudioParts = [];
   aiVoiceUsed = getSelectedAiVoice();
+  aiTtsModelsUsed = new Set();
   // AI音声では、最後のひと言（終了アナウンス）は読み上げません。
   chunks = realChunks;
 
@@ -2111,6 +2152,10 @@ async function playAiChunk(activeSessionId, index) {
   let speech = null;
   try {
     speech = await fetchAiSpeech(chunkText);
+    if (speech?.model && !aiTtsModelsUsed.has(speech.model)) {
+      aiTtsModelsUsed.add(speech.model);
+      updateUsedModel();
+    }
   } catch (error) {
     if (!isReading || activeSessionId !== sessionId) return;
     console.warn("AI音声を作れませんでした。", error);
@@ -2286,7 +2331,11 @@ async function requestAiSpeech(text, voice) {
       throw error;
     }
 
-    return { pcm: decodeBase64(result.audio), sampleRate: getAudioSampleRate(result.mimeType) };
+    return {
+      pcm: decodeBase64(result.audio),
+      sampleRate: getAudioSampleRate(result.mimeType),
+      model: typeof result.model === "string" ? result.model : "",
+    };
   } finally {
     window.clearTimeout(timeoutId);
   }

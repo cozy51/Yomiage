@@ -257,7 +257,8 @@ async function generateText(apiKey, parts, options = {}) {
     console.error("Geminiが文章を返しませんでした。", JSON.stringify(result?.candidates?.[0]?.finishReason || result?.promptFeedback || {}));
   }
 
-  return text;
+  // どのモデルで作ったかも返します（混み合っていて代わりのモデルを使ったことが、画面で分かるようにするためです）。
+  return { text, model };
 }
 
 /**
@@ -315,7 +316,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
     return null;
   }
 
-  return { audio: audioPart.inlineData.data, mimeType: audioPart.inlineData.mimeType };
+  return { audio: audioPart.inlineData.data, mimeType: audioPart.inlineData.mimeType, model };
 }
 
 module.exports = {
