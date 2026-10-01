@@ -12,7 +12,14 @@
  * 再生・保存できる形（WAV）へ組み立てるのはブラウザ側です。
  */
 
-const { isAuthConfigured, isAuthenticated, checkRateLimit, getClientKey } = require("./_auth");
+const {
+  isAuthConfigured,
+  isAuthenticated,
+  checkRateLimit,
+  refundRateLimit,
+  describeRateLimitWait,
+  getClientKey,
+} = require("./_auth");
 const { generateSpeech, listAvailableModels, getGeminiTtsModel } = require("./_gemini");
 
 // 呼び出しすぎを防ぐための上限です（少人数での利用を想定しています）。
@@ -31,7 +38,7 @@ const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
   notConfigured: "AI音声を利用できません。パスワードの設定を確認してください。",
   needPassword: "AI音声を利用するには、パスワードの入力が必要です。",
-  tooManyRequests: "AI音声の利用が続いています。しばらくしてから再度お試しください。",
+  tooManyRequests: "短時間でのAI音声の利用回数が上限に達しました。",
   unavailable: "AI音声を利用できません。しばらくしてから再度お試しください。",
   invalidRequest: "文章を受け取れませんでした。もう一度お試しください。",
   invalidVoice: "その音声には対応していません。",
@@ -73,8 +80,12 @@ module.exports = async function handler(request, response) {
     return response.status(401).json({ message: MESSAGES.needPassword, code: "TTS-401" });
   }
 
-  if (!checkRateLimit(`tts:${getClientKey(request)}`, TTS_REQUEST_LIMIT, TTS_WINDOW_MS)) {
-    return response.status(429).json({ message: MESSAGES.tooManyRequests, code: "TTS-429" });
+  const rateLimitKey = `tts:${getClientKey(request)}`;
+  if (!checkRateLimit(rateLimitKey, TTS_REQUEST_LIMIT, TTS_WINDOW_MS)) {
+    return response.status(429).json({
+      message: `${MESSAGES.tooManyRequests}${describeRateLimitWait(rateLimitKey)}`,
+      code: "TTS-429",
+    });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -109,6 +120,8 @@ module.exports = async function handler(request, response) {
     // 音声データと、その形式（例: audio/L16;codec=pcm;rate=24000）だけを返します。
     return response.status(200).json({ audio: speech.audio, mimeType: speech.mimeType });
   } catch (error) {
+    // Gemini側の不調などで失敗した分は、使った回数に数えません。
+    refundRateLimit(rateLimitKey);
     const status = error?.geminiStatus;
 
     if (status === 404) {

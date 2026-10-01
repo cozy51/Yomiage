@@ -9,7 +9,14 @@
  * 文章は処理のあいだだけ扱い、サーバーには保存しません。
  */
 
-const { isAuthConfigured, isAuthenticated, checkRateLimit, getClientKey } = require("./_auth");
+const {
+  isAuthConfigured,
+  isAuthenticated,
+  checkRateLimit,
+  refundRateLimit,
+  describeRateLimitWait,
+  getClientKey,
+} = require("./_auth");
 // Geminiの呼び出しとモデル名は、画像の読み取り（api/ocr.js）と共通の処理を使います。
 const { generateText, listAvailableModels, getGeminiModel } = require("./_gemini");
 
@@ -33,7 +40,7 @@ const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
   notConfigured: "AIの機能を利用できません。パスワードの設定を確認してください。",
   needPassword: "AIの機能を利用するには、パスワードの入力が必要です。",
-  tooManyRequests: "AIの利用が続いています。しばらくしてから再度お試しください。",
+  tooManyRequests: "短時間でのAIの利用回数が上限に達しました。",
   unavailable: "AIの機能を利用できません。しばらくしてから再度お試しください。",
   invalidRequest: "文章を受け取れませんでした。もう一度お試しください。",
   invalidLanguage: "その言語には対応していません。",
@@ -144,8 +151,12 @@ module.exports = async function handler(request, response) {
     return response.status(401).json({ message: MESSAGES.needPassword, code: "AI-401" });
   }
 
-  if (!checkRateLimit(`ai:${getClientKey(request)}`, AI_REQUEST_LIMIT, AI_WINDOW_MS)) {
-    return response.status(429).json({ message: MESSAGES.tooManyRequests, code: "AI-429" });
+  const rateLimitKey = `ai:${getClientKey(request)}`;
+  if (!checkRateLimit(rateLimitKey, AI_REQUEST_LIMIT, AI_WINDOW_MS)) {
+    return response.status(429).json({
+      message: `${MESSAGES.tooManyRequests}${describeRateLimitWait(rateLimitKey)}`,
+      code: "AI-429",
+    });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -215,6 +226,8 @@ module.exports = async function handler(request, response) {
     // unchangedは、原文と中身が変わらなかったことを画面へ伝えるための印です。
     return response.status(200).json({ text: result, unchanged });
   } catch (error) {
+    // Gemini側の不調などで失敗した分は、使った回数に数えません。
+    refundRateLimit(rateLimitKey);
     const status = error?.geminiStatus;
 
     if (status === 404) {
