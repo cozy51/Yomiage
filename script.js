@@ -1624,14 +1624,15 @@ async function recognizeWithGemini(file) {
   }
 }
 
-// ===== 処理方法（そのまま / 高精度OCR / 翻訳 / 要約） =====
+// ===== 処理方法（そのまま / 高精度OCR / 要約 / 詳細要約 / 翻訳） =====
 // 画像の読み取り方と、読み上げる前のAI処理を、1つの選択で決めます。
-// 高精度OCR・翻訳・要約はGeminiを使うため、同じパスワード認証が必要です。
+// 高精度OCR・要約・詳細要約・翻訳はGeminiを使うため、同じパスワード認証が必要です。
 
 const AI_TEXT_ENDPOINT = "/api/ai";
 const AI_TEXT_TIMEOUT_MS = 45000;
 const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
-const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "translate"];
+const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "summarize-detail", "translate"];
+const AI_TEXT_MODES = ["summarize", "summarize-detail", "translate"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
@@ -1672,7 +1673,7 @@ function usesAiOcr() {
 // 読み上げる前に文章をAIで処理するかどうかを返します（しない場合は空文字）。
 function getTextAiMode() {
   const mode = getProcessMode();
-  return mode === "translate" || mode === "summarize" ? mode : "";
+  return AI_TEXT_MODES.includes(mode) ? mode : "";
 }
 
 // 処理中は、途中で方法を変えられないようにします。
@@ -1749,7 +1750,7 @@ const AI_RESULT_HELP = "読み上げるのは、こちらの文章です。「�
 function showAiResult(text, mode, isUnchanged = false) {
   const kind = mode === "translate"
     ? `${translateLanguage.selectedOptions[0].textContent}に翻訳`
-    : "日本語に要約";
+    : mode === "summarize-detail" ? "日本語に詳細要約" : "日本語に要約";
 
   aiResultInput.value = text;
   // AIが原文をそのまま返したときは、処理されていないことが分かるようにします。
@@ -1798,7 +1799,7 @@ async function requestAiText(mode, text) {
       credentials: "same-origin",
       body: JSON.stringify(mode === "translate"
         ? { action: "translate", text, targetLanguage: translateLanguage.value }
-        : { action: "summarize", text }),
+        : { action: mode, text }),
       signal: controller.signal,
     });
 
@@ -1833,7 +1834,9 @@ async function applyAiMode(mode) {
   setProcessModeEnabled(false);
   if (isReading) stopSpeaking();
   statusText.classList.remove("error");
-  statusText.textContent = mode === "translate" ? "AIで翻訳しています…" : "AIで要約しています…";
+  statusText.textContent = mode === "translate"
+    ? "AIで翻訳しています…"
+    : mode === "summarize-detail" ? "AIで詳しく要約しています…" : "AIで要約しています…";
 
   try {
     const processed = await withPasswordRetry(() => requestAiText(mode, sourceText));
