@@ -2528,6 +2528,9 @@ async function loadModelInfo() {
     const data = await response.json();
     if (typeof data?.text === "string" && data.text) document.getElementById("model-text").textContent = data.text;
     if (typeof data?.tts === "string" && data.tts) document.getElementById("model-tts").textContent = data.tts;
+    // 混み合っているときなどに切り替える先のモデルです。切り替え先がないときは「—」と表示します。
+    if (typeof data?.textFallback === "string") document.getElementById("model-text-fallback").textContent = data.textFallback || "—";
+    if (typeof data?.ttsFallback === "string") document.getElementById("model-tts-fallback").textContent = data.ttsFallback || "—";
   } catch {
     // 表示用の情報のため、失敗しても何もしません。
   }
