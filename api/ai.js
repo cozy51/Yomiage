@@ -9,13 +9,10 @@
  * 文章は処理のあいだだけ扱い、サーバーには保存しません。
  */
 
-const { isAuthConfigured, isAuthenticated, checkRateLimit, getClientKey } = require("./_auth");
+const { isAuthConfigured, isAuthenticated } = require("./_auth");
 // Geminiの呼び出しとモデル名は、画像の読み取り（api/ocr.js）と共通の処理を使います。
 const { generateText, listAvailableModels, getGeminiModel } = require("./_gemini");
 
-// 呼び出しすぎを防ぐための上限です（少人数での利用を想定しています）。
-const AI_REQUEST_LIMIT = 30;
-const AI_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TEXT_LENGTH = 20000;
 // Vercelの上限（60秒）内に収めるため、やり直しは残り時間がこれだけあるときだけ行います。
 const AI_TOTAL_BUDGET_MS = 52000;
@@ -33,7 +30,6 @@ const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
   notConfigured: "AIの機能を利用できません。パスワードの設定を確認してください。",
   needPassword: "AIの機能を利用するには、パスワードの入力が必要です。",
-  tooManyRequests: "AIの利用が続いています。しばらくしてから再度お試しください。",
   unavailable: "AIの機能を利用できません。しばらくしてから再度お試しください。",
   invalidRequest: "文章を受け取れませんでした。もう一度お試しください。",
   invalidLanguage: "その言語には対応していません。",
@@ -142,10 +138,6 @@ module.exports = async function handler(request, response) {
   // 料金がかかる処理のため、パスワードで認証した人だけが使えるようにします。
   if (!isAuthenticated(request)) {
     return response.status(401).json({ message: MESSAGES.needPassword, code: "AI-401" });
-  }
-
-  if (!checkRateLimit(`ai:${getClientKey(request)}`, AI_REQUEST_LIMIT, AI_WINDOW_MS)) {
-    return response.status(429).json({ message: MESSAGES.tooManyRequests, code: "AI-429" });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
