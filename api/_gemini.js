@@ -15,10 +15,14 @@ const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 // 音声を作るモデルです。文章用とは別のモデルを使います。
 // Vercelの環境変数 GEMINI_TTS_MODEL を設定した場合は、そちらが優先されます。
 const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
-// メインのモデルが混み合っている・利用上限に達した（429・503など）ときに、代わりに使うモデルです。
+// 品質の高い「通常モデル」です。画面で「通常モデル優先」を選んだときに最初に使い、
+// 「廉価モデル優先」のときは、廉価モデルが混み合っている・利用上限に達した（429・503など）ときの代わりに使います。
 // 利用上限はモデルごとに別々のため、別のモデルに切り替えると続けて使えることが多くなります。
-const FALLBACK_GEMINI_MODEL = "gemini-3.8-flash";
-const FALLBACK_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
+const STANDARD_GEMINI_MODEL = "gemini-3.8-flash";
+const STANDARD_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
+// 画面で選べる「どちらのモデルを先に使うか」です。economy = 廉価モデル優先（既定）、standard = 通常モデル優先。
+const MODEL_PRIORITIES = ["economy", "standard"];
+const DEFAULT_MODEL_PRIORITY = "economy";
 // Gemini 3.8 以降のモデルです。temperature が使えず、考える深さ（thinkingLevel）や話し方の指示を使います。
 const NEW_GENERATION_MODEL_PATTERN = /^gemini-(3\.[89]|[4-9])/;
 // Gemini側の一時的な不調を表す状態コードです。少し待ってやり直すと通ることが多いものです。
@@ -54,13 +58,23 @@ function getGeminiTtsModel() {
   return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_TTS_MODEL;
 }
 
-// 使うモデルの順番です。メインのモデルのあとに、代わりのモデルを並べます。
-function getTextModels() {
-  return [...new Set([getGeminiModel(), FALLBACK_GEMINI_MODEL])];
+// 画面から届いた値を、使える優先順位に直します。分からない値のときは既定（廉価モデル優先）にします。
+function normalizeModelPriority(priority) {
+  return MODEL_PRIORITIES.includes(priority) ? priority : DEFAULT_MODEL_PRIORITY;
 }
 
-function getTtsModels() {
-  return [...new Set([getGeminiTtsModel(), FALLBACK_GEMINI_TTS_MODEL])];
+// 使うモデルの順番です。最初に使うモデルのあとに、代わりのモデルを並べます。
+// 廉価モデルは環境変数（GEMINI_MODEL / GEMINI_TTS_MODEL）で差し替えられます。
+function getTextModels(priority) {
+  const models = [getGeminiModel(), STANDARD_GEMINI_MODEL];
+  if (normalizeModelPriority(priority) === "standard") models.reverse();
+  return [...new Set(models)];
+}
+
+function getTtsModels(priority) {
+  const models = [getGeminiTtsModel(), STANDARD_GEMINI_TTS_MODEL];
+  if (normalizeModelPriority(priority) === "standard") models.reverse();
+  return [...new Set(models)];
 }
 
 function sleep(ms) {
@@ -221,7 +235,7 @@ async function generateText(apiKey, parts, options = {}) {
     ...(options.systemInstruction ? { system_instruction: { parts: [{ text: options.systemInstruction }] } } : {}),
   });
 
-  let last = await requestGeminiWithRetry(apiKey, getTextModels(), buildPayload, timeoutMs);
+  let last = await requestGeminiWithRetry(apiKey, getTextModels(options.priority), buildPayload, timeoutMs);
   let { response: geminiResponse, model } = last;
 
   // 環境変数で古いモデルを選んだときなど、「指示」や「考える深さ」の渡し方に対応していないときは、
@@ -278,7 +292,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
   };
   // Gemini 3.8 以降の音声モデルには、話し方の指示を speech_metadata として文章とは別に渡します。
   // 文章へ指示を混ぜると、指示まで読み上げてしまうことがあるためです。それより前のモデルには文章だけを渡します。
-  let last = await requestGeminiWithRetry(apiKey, getTtsModels(), (model) => ({
+  let last = await requestGeminiWithRetry(apiKey, getTtsModels(options.priority), (model) => ({
     contents: [{ parts: [isNewGenerationModel(model) ? { text, speech_metadata: { style: TTS_STYLE } } : { text }] }],
     generationConfig,
   }), timeoutMs);
@@ -328,6 +342,7 @@ module.exports = {
   getGeminiTtsModel,
   getTextModels,
   getTtsModels,
+  normalizeModelPriority,
   readRetryAfterMs,
   generateText,
   generateSpeech,

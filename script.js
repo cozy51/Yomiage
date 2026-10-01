@@ -1626,7 +1626,7 @@ async function recognizeWithGemini(file) {
       headers: { "Content-Type": "application/json" },
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, modelPriority: getModelPriority() }),
       signal: controller.signal,
     });
 
@@ -1665,6 +1665,11 @@ const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
 const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "summarize-detail", "translate"];
 const AI_TEXT_MODES = ["summarize", "summarize-detail", "translate"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
+// AIのどちらのモデルを先に使うか（economy = 廉価モデル優先、standard = 通常モデル優先）を保存する場所です。
+const MODEL_PRIORITY_STORAGE_KEY = "yomiage-model-priority";
+const MODEL_PRIORITIES = ["economy", "standard"];
+const MODEL_PRIORITY_LABELS = { economy: "廉価モデル優先", standard: "通常モデル優先" };
+const modelPriorityInputs = [...document.querySelectorAll('input[name="model-priority"]')];
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
 let aiResultSource = "";
@@ -1672,6 +1677,8 @@ let aiResultSource = "";
 let aiResultModel = "";
 let aiResultMode = "";
 let aiResultLanguage = "";
+// AIの結果を作ったときの「どちらのモデルを先に使うか」です。切り替えたら作り直します。
+let aiResultPriority = "";
 
 function getProcessMode() {
   const selected = document.querySelector('input[name="process-mode"]:checked');
@@ -1777,6 +1784,32 @@ translateLanguage.addEventListener("change", saveProcessSettings);
 
 restoreProcessSettings();
 
+function getModelPriority() {
+  const checked = modelPriorityInputs.find((input) => input.checked);
+  return checked && MODEL_PRIORITIES.includes(checked.value) ? checked.value : "economy";
+}
+
+// 選んだモデルの優先は、次に使うときのためにブラウザへ保存します。
+modelPriorityInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    try {
+      localStorage.setItem(MODEL_PRIORITY_STORAGE_KEY, getModelPriority());
+    } catch (error) {
+      console.warn("AIモデルの設定を保存できませんでした。", error);
+    }
+    renderModelInfo();
+  });
+});
+
+try {
+  const savedPriority = localStorage.getItem(MODEL_PRIORITY_STORAGE_KEY);
+  if (MODEL_PRIORITIES.includes(savedPriority)) {
+    modelPriorityInputs.forEach((input) => { input.checked = input.value === savedPriority; });
+  }
+} catch (error) {
+  console.warn("保存したAIモデルの設定を読み込めませんでした。", error);
+}
+
 // AIの結果を別の欄に入れることで、元の文章は入力欄にそのまま残します。
 function updateAiResultCount() {
   aiResultCount.textContent = `${Array.from(aiResultInput.value).length.toLocaleString("ja-JP")}文字`;
@@ -1835,8 +1868,8 @@ async function requestAiText(mode, text) {
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
       body: JSON.stringify(mode === "translate"
-        ? { action: "translate", text, targetLanguage: translateLanguage.value }
-        : { action: mode, text }),
+        ? { action: "translate", text, targetLanguage: translateLanguage.value, modelPriority: getModelPriority() }
+        : { action: mode, text, modelPriority: getModelPriority() }),
       signal: controller.signal,
     });
 
@@ -1890,6 +1923,7 @@ async function applyAiMode(mode) {
     aiResultModel = processed.model;
     aiResultMode = mode;
     aiResultLanguage = translateLanguage.value;
+    aiResultPriority = getModelPriority();
     return true;
   } catch (error) {
     console.warn("AIの処理に失敗しました。", error);
@@ -1907,6 +1941,7 @@ function hasFreshAiResult(mode) {
   return Boolean(aiResultInput.value.trim())
     && aiResultSource === textInput.value
     && aiResultMode === mode
+    && aiResultPriority === getModelPriority()
     && (mode !== "translate" || aiResultLanguage === translateLanguage.value);
 }
 
@@ -2240,11 +2275,13 @@ function stopAiPlayback() {
  * 同じ文章・同じ声のときは、作り直さずに前の音声を使います（料金がかからないようにするため）。
  */
 function fetchAiSpeech(text) {
-  const key = `${aiVoiceUsed}|${text}`;
+  // モデルの優先を切り替えたときは、別の音声として作り直します。
+  const priority = getModelPriority();
+  const key = `${priority}|${aiVoiceUsed}|${text}`;
   const cached = aiSpeechCache.get(key);
   if (cached) return cached.request;
 
-  const entry = { request: withPasswordRetry(() => requestAiSpeechWithRetry(text, aiVoiceUsed)), bytes: 0 };
+  const entry = { request: withPasswordRetry(() => requestAiSpeechWithRetry(text, aiVoiceUsed, priority)), bytes: 0 };
   aiSpeechCache.set(key, entry);
 
   entry.request.then((speech) => {
@@ -2277,10 +2314,10 @@ function trimAiSpeechCache() {
  * 無料枠では1分あたりに作れる回数が決まっているため、待てば続きを作れることが多いからです。
  * 待つ時間は、Geminiが教えてくれた秒数を優先して使います。
  */
-async function requestAiSpeechWithRetry(text, voice) {
+async function requestAiSpeechWithRetry(text, voice, priority) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await requestAiSpeech(text, voice);
+      return await requestAiSpeech(text, voice, priority);
     } catch (error) {
       const defaultDelay = AI_TTS_BUSY_RETRY_DELAYS_MS[attempt];
       if (error?.ocrCode !== "TTS-G429" || !defaultDelay) throw error;
@@ -2301,7 +2338,7 @@ function showBusyNotice(waitMs) {
 }
 
 // Vercel側の /api/tts を経由して、Geminiが作った音声を受け取ります。
-async function requestAiSpeech(text, voice) {
+async function requestAiSpeech(text, voice, priority) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_TTS_TIMEOUT_MS);
 
@@ -2311,7 +2348,7 @@ async function requestAiSpeech(text, voice) {
       headers: { "Content-Type": "application/json" },
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
-      body: JSON.stringify({ text, voice }),
+      body: JSON.stringify({ text, voice, modelPriority: priority }),
       signal: controller.signal,
     });
 
@@ -2568,20 +2605,39 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => stopSpeaking(false));
 window.addEventListener("beforeunload", () => synthesis.cancel());
 
-// 画面の一番下に、サーバー側で実際に使っているAIモデル名を表示します。
-// 取得できないとき（ローカルで開いたときなど）は、HTMLに書いた既定のモデル名のままにします。
+// 画面の一番下に、選んでいる優先順位で使うAIモデル名を表示します。
+// サーバー側で実際に使う順番（/api/models）を取得し、取得できないとき（ローカルで開いたときなど）は既定の名前を使います。
+// 並びは「最初に使うモデル」「混み合っているときなどに切り替える先のモデル」の順です。
+let modelLists = {
+  economy: { text: ["gemini-3.5-flash-lite", "gemini-3.8-flash"], tts: ["gemini-3.1-flash-tts-preview", "gemini-3.8-flash-tts"] },
+  standard: { text: ["gemini-3.8-flash", "gemini-3.5-flash-lite"], tts: ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview"] },
+};
+
+function renderModelInfo() {
+  const priority = getModelPriority();
+  const lists = modelLists[priority] || modelLists.economy;
+  document.getElementById("model-priority-label").textContent = MODEL_PRIORITY_LABELS[priority];
+  document.getElementById("model-text").textContent = lists.text[0] || "—";
+  document.getElementById("model-tts").textContent = lists.tts[0] || "—";
+  // 切り替え先がないときは「—」と表示します。
+  document.getElementById("model-text-fallback").textContent = lists.text[1] || "—";
+  document.getElementById("model-tts-fallback").textContent = lists.tts[1] || "—";
+}
+
 async function loadModelInfo() {
+  renderModelInfo();
   try {
     const response = await fetch("/api/models", { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
-    if (typeof data?.text === "string" && data.text) document.getElementById("model-text").textContent = data.text;
-    if (typeof data?.tts === "string" && data.tts) document.getElementById("model-tts").textContent = data.tts;
-    // 混み合っているときなどに切り替える先のモデルです。切り替え先がないときは「—」と表示します。
-    if (typeof data?.textFallback === "string") document.getElementById("model-text-fallback").textContent = data.textFallback || "—";
-    if (typeof data?.ttsFallback === "string") document.getElementById("model-tts-fallback").textContent = data.ttsFallback || "—";
+    const isList = (list) => Array.isArray(list) && list.length && list.every((model) => typeof model === "string");
+    for (const priority of MODEL_PRIORITIES) {
+      const lists = data?.[priority];
+      if (isList(lists?.text) && isList(lists?.tts)) modelLists[priority] = { text: lists.text, tts: lists.tts };
+    }
+    renderModelInfo();
   } catch {
-    // 表示用の情報のため、失敗しても何もしません。
+    // 表示用の情報のため、失敗しても既定の名前のままにします。
   }
 }
 

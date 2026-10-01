@@ -157,6 +157,24 @@
         </div>
       </fieldset>
 
+      <fieldset class="model-priority">
+        <legend>AIモデル</legend>
+        <label class="model-priority-option">
+          <input type="radio" name="model-priority" value="standard">
+          <span class="model-priority-body">
+            <span class="model-priority-title">通常モデル優先</span>
+            <span class="model-priority-note">品質重視・料金高め</span>
+          </span>
+        </label>
+        <label class="model-priority-option">
+          <input type="radio" name="model-priority" value="economy" checked>
+          <span class="model-priority-body">
+            <span class="model-priority-title">廉価モデル優先</span>
+            <span class="model-priority-note">安価・混雑に強い</span>
+          </span>
+        </label>
+      </fieldset>
+
       <div class="settings" aria-label="読み上げ設定">
         <div class="setting-field voice-field">
           <label for="voice-select">音声（ブラウザ・無料）</label>
@@ -190,7 +208,7 @@
         <p id="ocr-progress-label" class="ocr-progress-label" role="status" aria-live="polite">準備中… 0%</p>
       </div>
 
-      <p class="model-info">使用AIモデル：<span id="model-text">gemini-3.5-flash-lite</span>（OCR・要約・翻訳）／<span id="model-tts">gemini-3.1-flash-tts-preview</span>（AI音声）<br><span id="model-fallback">混雑・上限時の切替先：<span id="model-text-fallback">gemini-3.8-flash</span>／<span id="model-tts-fallback">gemini-3.8-flash-tts</span></span></p>
+      <p class="model-info">使用AIモデル（<span id="model-priority-label">廉価モデル優先</span>）：<span id="model-text">gemini-3.5-flash-lite</span>（OCR・要約・翻訳）／<span id="model-tts">gemini-3.1-flash-tts-preview</span>（AI音声）<br><span id="model-fallback">混雑・上限時の切替先：<span id="model-text-fallback">gemini-3.8-flash</span>／<span id="model-tts-fallback">gemini-3.8-flash-tts</span></span></p>
     </section>
 
     <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" hidden>

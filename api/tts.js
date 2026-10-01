@@ -91,7 +91,8 @@ module.exports = async function handler(request, response) {
   }
 
   try {
-    const speech = await generateSpeech(apiKey, text, voice);
+    // 画面で選んだ「どちらのモデルを先に使うか」も渡します。
+    const speech = await generateSpeech(apiKey, text, voice, { priority: body?.modelPriority });
 
     if (!speech?.audio) {
       return response.status(502).json({ message: MESSAGES.empty, code: "TTS-EMPTY" });
