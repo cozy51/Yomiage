@@ -2519,7 +2519,22 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => stopSpeaking(false));
 window.addEventListener("beforeunload", () => synthesis.cancel());
 
+// 画面の一番下に、サーバー側で実際に使っているAIモデル名を表示します。
+// 取得できないとき（ローカルで開いたときなど）は、HTMLに書いた既定のモデル名のままにします。
+async function loadModelInfo() {
+  try {
+    const response = await fetch("/api/models", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (typeof data?.text === "string" && data.text) document.getElementById("model-text").textContent = data.text;
+    if (typeof data?.tts === "string" && data.tts) document.getElementById("model-tts").textContent = data.tts;
+  } catch {
+    // 表示用の情報のため、失敗しても何もしません。
+  }
+}
+
 // AI音声の一覧と案内は、ブラウザの音声の有無にかかわらず用意します。
+loadModelInfo();
 loadAiVoices();
 updateVoiceNote();
 
