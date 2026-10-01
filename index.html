@@ -160,17 +160,17 @@
       <fieldset class="model-priority">
         <legend>AIモデル</legend>
         <label class="model-priority-option">
-          <input type="radio" name="model-priority" value="standard">
-          <span class="model-priority-body">
-            <span class="model-priority-title">通常モデル優先</span>
-            <span class="model-priority-note">品質重視・料金高め</span>
-          </span>
-        </label>
-        <label class="model-priority-option">
           <input type="radio" name="model-priority" value="economy" checked>
           <span class="model-priority-body">
             <span class="model-priority-title">廉価モデル優先</span>
             <span class="model-priority-note">安価・混雑に強い</span>
+          </span>
+        </label>
+        <label class="model-priority-option">
+          <input type="radio" name="model-priority" value="standard">
+          <span class="model-priority-body">
+            <span class="model-priority-title">通常モデル優先</span>
+            <span class="model-priority-note">高品質・料金高め</span>
           </span>
         </label>
       </fieldset>
@@ -208,7 +208,16 @@
         <p id="ocr-progress-label" class="ocr-progress-label" role="status" aria-live="polite">準備中… 0%</p>
       </div>
 
-      <p class="model-info">使用AIモデル（<span id="model-priority-label">廉価モデル優先</span>）：<span id="model-text">gemini-3.5-flash-lite</span>（OCR・要約・翻訳）／<span id="model-tts">gemini-3.1-flash-tts-preview</span>（AI音声）<br><span id="model-fallback">混雑・上限時の切替先：<span id="model-text-fallback">gemini-3.8-flash</span>／<span id="model-tts-fallback">gemini-3.8-flash-tts</span></span></p>
+      <table class="model-info">
+        <caption>使用AIモデル（<span id="model-priority-label">廉価モデル優先</span>）</caption>
+        <thead>
+          <tr><th scope="col"></th><th scope="col">OCR・要約・翻訳</th><th scope="col">AI音声</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">最初に使う</th><td id="model-text">gemini-3.5-flash-lite</td><td id="model-tts">gemini-3.1-flash-tts-preview</td></tr>
+          <tr><th scope="row">混雑・上限時</th><td id="model-text-fallback">gemini-3.8-flash</td><td id="model-tts-fallback">gemini-3.8-flash-tts</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" hidden>
