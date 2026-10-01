@@ -1,10 +1,10 @@
 {
   "functions": {
     "api/ocr.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/ai.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/tts.js": {
       "maxDuration": 60

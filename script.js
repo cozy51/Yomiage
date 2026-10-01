@@ -1498,7 +1498,7 @@ passwordDialog.addEventListener("cancel", (event) => {
 // 料金がかかるため、「画像の読み取り方法」でAI OCRを選んでいるときだけ呼び出します。
 
 const AI_OCR_ENDPOINT = "/api/ocr";
-const AI_OCR_TIMEOUT_MS = 35000;
+const AI_OCR_TIMEOUT_MS = 65000;
 // Vercelへ送れる大きさには上限があるため、余裕をみた上限を決めています。
 const AI_OCR_MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 const AI_OCR_MAX_IMAGE_SIDE = 2000;
@@ -1629,7 +1629,7 @@ async function recognizeWithGemini(file) {
 // 高精度OCR・要約・詳細要約・翻訳はGeminiを使うため、同じパスワード認証が必要です。
 
 const AI_TEXT_ENDPOINT = "/api/ai";
-const AI_TEXT_TIMEOUT_MS = 45000;
+const AI_TEXT_TIMEOUT_MS = 65000;
 const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
 const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "summarize-detail", "translate"];
 const AI_TEXT_MODES = ["summarize", "summarize-detail", "translate"];

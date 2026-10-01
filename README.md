@@ -98,7 +98,7 @@ AIが原文をそのまま返すことがあります（すでにその言語で
 
 ### 動き
 
-1. 文章を120文字ずつに区切り、Gemini（`gemini-3.1-flash-tts-preview`）へ順番に音声を作ってもらいます。
+1. 文章を120文字ずつに区切り、Gemini（`gemini-3.8-flash-tts`）へ順番に音声を作ってもらいます。区切った文章ごとに作っても声の調子がそろうよう、毎回同じ「話し方の指示」（`api/_gemini.js` の `TTS_STYLE`）を一緒に渡します。
 2. **最初のひとかたまりができた時点で再生を始め、次の音声は再生中に作ります。**待ち時間を短くするためです。
 3. 「一時停止」「停止」「読み上げ速度」は、ブラウザの音声と同じように使えます。速度は**再生中でもすぐに変わります**。
 4. **AI音声では、終了アナウンス（「〜を終了します。」）は読み上げません。**文章だけを読み上げます（ブラウザの音声では、これまでどおり読み上げます）。
@@ -264,9 +264,11 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 
 ### 使用するモデルの変更
 
-使用するGeminiのモデル名は `api/_gemini.js` の先頭にある `DEFAULT_GEMINI_MODEL` の1か所だけで管理しています（画像の読み取りと文章の処理で共通です）。初期値は `gemini-3.5-flash-lite` です。別のモデルへ変更するときは、この値だけを書き換えてください。
+使用するGeminiのモデル名は `api/_gemini.js` の先頭にある `DEFAULT_GEMINI_MODEL` の1か所だけで管理しています（画像の読み取りと文章の処理で共通です）。初期値は `gemini-3.8-flash` です。別のモデルへ変更するときは、この値だけを書き換えてください。
 
-音声を作るモデルは別で、`api/_gemini.js` の `DEFAULT_GEMINI_TTS_MODEL`（初期値 `gemini-3.1-flash-tts-preview`）で管理しています。環境変数 `GEMINI_TTS_MODEL` を設定した場合は、そちらが優先されます。
+Gemini 3.8 では `temperature` などの揺らぎの設定が使えないため、かわりに「考える深さ」（`thinkingLevel`）を指定しています。高精度OCR・要約・翻訳は `low`、詳細要約は `medium` です。Flash（Liteではない）は考えてから答えるぶん時間がかかるため、`api/ocr.js`・`api/ai.js` の処理時間は60秒（`vercel.json`）、Geminiを待つ時間は50秒（`GEMINI_TIMEOUT_MS`）にしています。
+
+音声を作るモデルは別で、`api/_gemini.js` の `DEFAULT_GEMINI_TTS_MODEL`（初期値 `gemini-3.8-flash-tts`）で管理しています。環境変数 `GEMINI_TTS_MODEL` を設定した場合は、そちらが優先されます。
 
 Vercelの環境変数に `GEMINI_MODEL` を設定した場合は、そちらが優先されます。コードを変えずに別のモデルを試したいときに使えます（`Settings` → `Environment Variables` で `GEMINI_MODEL` を追加し、再デプロイしてください）。値が空のときや使えない形のときは、`DEFAULT_GEMINI_MODEL` に戻ります。
 

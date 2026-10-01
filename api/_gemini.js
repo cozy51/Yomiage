@@ -11,17 +11,22 @@
 
 // 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
 // Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 // 音声を作るモデルです。文章用とは別のモデルを使います。
 // Vercelの環境変数 GEMINI_TTS_MODEL を設定した場合は、そちらが優先されます。
-const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 // 音声や画像を作るためのモデルは、文章の処理には使えないため候補から除きます。
 const UNUSABLE_MODEL_PATTERN = /tts|image|audio|live|embedding/;
-const GEMINI_TIMEOUT_MS = 25000;
+// Flash（Liteではない）は考えてから答えるため、長めに待ちます（vercel.json の maxDuration より短くします）。
+const GEMINI_TIMEOUT_MS = 50000;
 const GEMINI_TTS_TIMEOUT_MS = 55000;
 const GEMINI_MODEL_LIST_TIMEOUT_MS = 8000;
+// 考える深さの既定値です（low / medium / high）。読み取りや翻訳のように忠実さが大事な処理は low で十分です。
+const DEFAULT_THINKING_LEVEL = "low";
+// AI音声の話し方の指示です。区切った文章ごとに作っても、声の調子がそろうように毎回同じ指示を渡します。
+const TTS_STYLE = "落ち着いた自然な日本語のナレーション。はっきりと聞き取りやすく、一定の調子と速さで読み上げる";
 
 // 環境変数の値が使えない形のときは、既定のモデル名に戻します。
 function getGeminiModel() {
@@ -117,9 +122,11 @@ async function generateText(apiKey, parts, options = {}) {
   const timeoutMs = options.timeoutMs || GEMINI_TIMEOUT_MS;
   const payload = {
     contents: [{ parts }],
+    // Gemini 3.8 では temperature などの揺らぎの設定は使えないため、考える深さ（thinkingLevel）だけを指定します。
+    // 考えた分も出力の上限に含まれるため、上限は多めにしています。
     generationConfig: {
-      temperature: typeof options.temperature === "number" ? options.temperature : 0,
-      maxOutputTokens: options.maxOutputTokens || 8192,
+      maxOutputTokens: options.maxOutputTokens || 16384,
+      thinkingConfig: { thinkingLevel: options.thinkingLevel || DEFAULT_THINKING_LEVEL },
     },
   };
 
@@ -129,12 +136,14 @@ async function generateText(apiKey, parts, options = {}) {
 
   let geminiResponse = await requestGemini(apiKey, model, payload, timeoutMs);
 
-  // 「指示」の渡し方に対応していないモデルのときは、指示を本文の先頭へ入れてもう一度試します。
-  if (geminiResponse.status === 400 && payload.system_instruction) {
-    console.error("system_instructionを受け付けなかったため、指示を本文へ入れて試し直します。", await readErrorBody(geminiResponse));
+  // 環境変数で古いモデルを選んだときなど、「指示」や「考える深さ」の渡し方に対応していないときは、
+  // 指示を本文の先頭へ入れ、考える深さを外してもう一度試します。
+  if (geminiResponse.status === 400) {
+    console.error("設定を受け付けなかったため、指示を本文へ入れて試し直します。", await readErrorBody(geminiResponse));
+    const instructionParts = options.systemInstruction ? [{ text: options.systemInstruction }] : [];
     geminiResponse = await requestGemini(apiKey, model, {
-      contents: [{ parts: [{ text: options.systemInstruction }, ...parts] }],
-      generationConfig: payload.generationConfig,
+      contents: [{ parts: [...instructionParts, ...parts] }],
+      generationConfig: { maxOutputTokens: payload.generationConfig.maxOutputTokens },
     }, timeoutMs);
   }
 
@@ -170,17 +179,28 @@ async function generateText(apiKey, parts, options = {}) {
  */
 async function generateSpeech(apiKey, text, voiceName, options = {}) {
   const model = getGeminiTtsModel();
-  const payload = {
-    contents: [{ parts: [{ text }] }],
-    generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName } },
-      },
+  const timeoutMs = options.timeoutMs || GEMINI_TTS_TIMEOUT_MS;
+  const generationConfig = {
+    responseModalities: ["AUDIO"],
+    speechConfig: {
+      voiceConfig: { prebuiltVoiceConfig: { voiceName } },
     },
   };
+  // 読み上げる文章はそのまま渡し、話し方の指示は speech_metadata として別に渡します。
+  // 文章へ指示を混ぜると、指示まで読み上げてしまうことがあるためです。
+  let geminiResponse = await requestGemini(apiKey, model, {
+    contents: [{ parts: [{ text, speech_metadata: { style: TTS_STYLE } }] }],
+    generationConfig,
+  }, timeoutMs);
 
-  const geminiResponse = await requestGemini(apiKey, model, payload, options.timeoutMs || GEMINI_TTS_TIMEOUT_MS);
+  // 話し方の指示に対応していないモデルのときは、文章だけで作り直します。
+  if (geminiResponse.status === 400) {
+    console.error("speech_metadataを受け付けなかったため、文章だけで試し直します。", await readErrorBody(geminiResponse));
+    geminiResponse = await requestGemini(apiKey, model, {
+      contents: [{ parts: [{ text }] }],
+      generationConfig,
+    }, timeoutMs);
+  }
 
   if (!geminiResponse.ok) {
     // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
