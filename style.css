@@ -640,6 +640,19 @@ input[type="range"] {
   font-size: .9rem;
 }
 
+/* 直前の読み上げで、実際に使ったAIのモデル名を小さく表示します。 */
+.used-model {
+  margin: -10px 0 14px;
+  color: var(--muted);
+  font-size: .72rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.used-model[hidden] {
+  display: none;
+}
+
 .status.error {
   color: var(--danger);
   font-weight: 700;

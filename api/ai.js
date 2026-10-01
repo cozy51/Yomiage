@@ -181,7 +181,7 @@ module.exports = async function handler(request, response) {
   try {
     // 詳細要約は、理由や具体例を整理する必要があるため、少し深く考えさせます。
     const thinkingLevel = action === "summarize-detail" ? "medium" : "low";
-    let result = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel });
+    let { text: result, model } = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel });
 
     if (!result) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
@@ -195,7 +195,7 @@ module.exports = async function handler(request, response) {
       const retryInstruction = `${instruction}
 
 ・前回はあなたが原文をそのまま返してしまいました。今度は必ず${action === "translate" ? `${languageName}へ翻訳した` : "日本語で要約した"}文章を返してください`;
-      const retryResult = await generateText(apiKey, [{ text: userText }], {
+      const { text: retryResult, model: retryModel } = await generateText(apiKey, [{ text: userText }], {
         systemInstruction: retryInstruction,
         thinkingLevel,
         timeoutMs: remainingMs,
@@ -203,13 +203,14 @@ module.exports = async function handler(request, response) {
 
       if (retryResult && !isSameText(retryResult, text)) {
         result = retryResult;
+        model = retryModel;
         unchanged = false;
       }
     }
 
-    // 処理した文章だけを返します。余分な情報は返しません。
+    // 処理した文章と、使ったモデル名だけを返します。余分な情報は返しません。
     // unchangedは、原文と中身が変わらなかったことを画面へ伝えるための印です。
-    return response.status(200).json({ text: result, unchanged });
+    return response.status(200).json({ text: result, unchanged, model });
   } catch (error) {
     const status = error?.geminiStatus;
 
