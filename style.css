@@ -524,7 +524,7 @@ select:focus {
 
 .model-priority-note {
   color: var(--muted);
-  font-size: .76rem;
+  font-size: .74rem;
 }
 
 /* 選択のすぐ下に続くため、設定欄との間を詰めます。 */
@@ -622,12 +622,41 @@ input[type="range"] {
 
 /* 画面の一番下に、使用しているAIモデルを小さく表示します。 */
 .model-info {
+  width: 100%;
   margin: 20px 0 0;
+  border-collapse: collapse;
   color: var(--muted);
   font-size: .72rem;
-  line-height: 1.5;
+  line-height: 1.45;
+  table-layout: fixed;
+}
+
+.model-info caption {
+  margin-bottom: 4px;
+  font-weight: 700;
   text-align: center;
+}
+
+.model-info th,
+.model-info td {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  text-align: left;
   overflow-wrap: anywhere;
+}
+
+.model-info thead th {
+  background: #f8fafc;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 行の見出し（最初に使う・混雑・上限時）は、狭く固定します。 */
+.model-info th[scope="row"],
+.model-info thead th:first-child {
+  width: 7.5em;
+  background: #f8fafc;
+  font-weight: 700;
 }
 
 /* ボタンの文言が、語の途中で折り返されないようにします。 */
