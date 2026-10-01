@@ -102,7 +102,8 @@ h1 {
 
 .quick-option {
   position: relative;
-  flex: 1 1 0;
+  /* 「詳細要約」のように長い名前のボタンへ、幅を多めに分けます。 */
+  flex: 1 1 auto;
   min-width: 0;
   text-align: center;
   cursor: pointer;
@@ -121,8 +122,8 @@ h1 {
   padding: 6px 2px;
   border-radius: 999px;
   color: var(--muted);
-  /* 狭い画面でも4つが1列に収まるよう、幅に合わせて少しだけ小さくします。 */
-  font-size: clamp(.63rem, 3.05vw, .82rem);
+  /* 狭い画面でも5つが1列に収まるよう、幅に合わせて少しだけ小さくします。 */
+  font-size: clamp(.6rem, 2.75vw, .82rem);
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -150,16 +151,17 @@ h1 {
   cursor: not-allowed;
 }
 
-/* スマートフォンでは、余白を詰めて4つ分の幅を確保します。 */
+/* スマートフォンでは、余白を詰めて5つ分の幅を確保します。 */
 @media (max-width: 480px) {
   .quick-mode {
-    gap: 3px;
-    width: calc(100% - 10px);
+    gap: 2px;
+    width: 100%;
     padding: 2px;
   }
 
   .quick-option-text {
-    padding: 6px 1px;
+    padding: 6px 0;
+    letter-spacing: -.02em;
   }
 }
 
@@ -348,7 +350,7 @@ select:focus {
   color: #92400e;
 }
 
-/* 処理方法（そのまま / 高精度OCR / 翻訳 / 要約）の選択です。 */
+/* 処理方法（そのまま / 高精度OCR / 要約 / 詳細要約 / 翻訳）の選択です。 */
 .process-mode {
   margin: 14px 0 0;
   padding: 8px 16px 14px;
@@ -364,7 +366,7 @@ select:focus {
   font-weight: 700;
 }
 
-/* 4つの違いが一目で分かるよう、1行ずつ・説明つきで並べます。 */
+/* 5つの違いが一目で分かるよう、1行ずつ・説明つきで並べます。 */
 .process-option {
   display: flex;
   align-items: flex-start;

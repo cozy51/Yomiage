@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * 文章をAIで処理する（翻訳・要約）ためのVercel側の処理です。
+ * 文章をAIで処理する（翻訳・要約・詳細要約）ためのVercel側の処理です。
  *
  * Gemini APIのキーはブラウザへ渡してはいけないため、この関数の中だけで使います。
  * 画像の読み取り（api/ocr.js）と同じく、料金がかかるためパスワードで認証した人だけが使えます。
@@ -79,11 +79,29 @@ const SUMMARIZE_INSTRUCTION = `あなたは要約者です。受け取った文�
 ・人の名前は呼び捨てにしない。日本語の人名には「さん」を付ける（例: 大坪さん）。原文に「様」「さん」「先生」「部長」などの敬称や役職があればそれを使う
 ・原文をそのまま書き写して返してはいけない`;
 
+// 詳細要約の指示です。通常の要約より丁寧に、話の流れや具体的な内容も残させます。
+const SUMMARIZE_DETAIL_INSTRUCTION = `あなたは要約者です。受け取った文章を日本語で、丁寧で詳しめに要約して返します。
+
+必ず守ってください。
+
+・入力された文章の言語は自動で判断する
+・入力が日本語以外でも、要約は日本語で書く
+・要約した文章だけを返す。原文・前置き・解説・注釈は付けない
+・元の文章にない情報を足さない
+・要点だけでなく、理由・背景・具体例・数値・日付・固有名詞など、理解に必要な内容もできるだけ残す
+・話の順序や論理の流れが分かるようにまとめる。話題が複数あるときは、それぞれを省かずに触れる
+・長さの目安は元の文章のおよそ3割から5割とし、元の文章より必ず短くする
+・読み上げに使うため、Markdownや箇条書きの記号は使わず、文章の形で書く。話題の切れ目では段落を分ける
+・人の名前は呼び捨てにしない。日本語の人名には「さん」を付ける（例: 大坪さん）。原文に「様」「さん」「先生」「部長」などの敬称や役職があればそれを使う
+・原文をそのまま書き写して返してはいけない`;
+
 // 処理する文章です。指示と区切って渡し、どこからが文章かを分かるようにします。
 function buildUserText(action, languageName, text) {
   const request = action === "translate"
     ? `次の文章を${languageName}へ翻訳してください。`
-    : "次の文章を日本語で要約してください。";
+    : action === "summarize-detail"
+      ? "次の文章を日本語で詳しめに要約してください。"
+      : "次の文章を日本語で要約してください。";
   return `${request}
 
 --- ここから文章 ---
@@ -140,7 +158,7 @@ module.exports = async function handler(request, response) {
   const action = typeof body?.action === "string" ? body.action : "";
   const text = typeof body?.text === "string" ? body.text.trim() : "";
 
-  if (!text || (action !== "translate" && action !== "summarize")) {
+  if (!text || !["translate", "summarize", "summarize-detail"].includes(action)) {
     return response.status(400).json({ message: MESSAGES.invalidRequest, code: "AI-BADREQ" });
   }
 
@@ -157,7 +175,9 @@ module.exports = async function handler(request, response) {
     }
   }
 
-  const instruction = action === "translate" ? buildTranslateInstruction(languageName) : SUMMARIZE_INSTRUCTION;
+  const instruction = action === "translate"
+    ? buildTranslateInstruction(languageName)
+    : action === "summarize-detail" ? SUMMARIZE_DETAIL_INSTRUCTION : SUMMARIZE_INSTRUCTION;
   const userText = buildUserText(action, languageName, text);
 
   const startedAt = Date.now();
