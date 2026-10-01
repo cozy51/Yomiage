@@ -13,7 +13,10 @@ const { isAuthConfigured, isAuthenticated } = require("./_auth");
 // Geminiの呼び出しとモデル名は、画像の読み取り（api/ocr.js）と共通の処理を使います。
 const { generateText, listAvailableModels, getGeminiModel } = require("./_gemini");
 
-const MAX_TEXT_LENGTH = 20000;
+// 受け付ける文章の長さです。モデル自体はもっと長い文章を読めますが、時間内に返事を作り終えられる長さにしています。
+// 要約は返事が短いため長めに、翻訳は原文と同じくらいの長さを書き出すため短めにしています。
+const MAX_SUMMARY_TEXT_LENGTH = 100000;
+const MAX_TRANSLATE_TEXT_LENGTH = 20000;
 // Vercelの上限（60秒）内に収めるため、やり直しは残り時間がこれだけあるときだけ行います。
 const AI_TOTAL_BUDGET_MS = 52000;
 const AI_RETRY_MIN_MS = 6000;
@@ -33,7 +36,7 @@ const MESSAGES = {
   unavailable: "AIの機能を利用できません。しばらくしてから再度お試しください。",
   invalidRequest: "文章を受け取れませんでした。もう一度お試しください。",
   invalidLanguage: "その言語には対応していません。",
-  tooLong: "文章が長すぎます。短く分けてお試しください。",
+  tooLong: (limit) => `文章が長すぎます（${limit.toLocaleString("ja-JP")}文字まで）。短く分けてお試しください。`,
   invalidKey: "AIの機能を利用できません。APIキーの設定を確認してください。",
   invalidModel: "AIのモデルを利用できません。モデル名の設定を確認してください。",
   busy: "AIの利用が混み合っています。しばらくしてから再度お試しください。",
@@ -154,8 +157,9 @@ module.exports = async function handler(request, response) {
     return response.status(400).json({ message: MESSAGES.invalidRequest, code: "AI-BADREQ" });
   }
 
-  if (text.length > MAX_TEXT_LENGTH) {
-    return response.status(413).json({ message: MESSAGES.tooLong, code: "AI-LONG" });
+  const maxTextLength = action === "translate" ? MAX_TRANSLATE_TEXT_LENGTH : MAX_SUMMARY_TEXT_LENGTH;
+  if (text.length > maxTextLength) {
+    return response.status(413).json({ message: MESSAGES.tooLong(maxTextLength), code: "AI-LONG" });
   }
 
   let languageName = "";

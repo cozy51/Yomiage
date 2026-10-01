@@ -325,6 +325,8 @@ module.exports = {
   GEMINI_TTS_TIMEOUT_MS,
   getGeminiModel,
   getGeminiTtsModel,
+  getTextModels,
+  getTtsModels,
   readRetryAfterMs,
   generateText,
   generateSpeech,
