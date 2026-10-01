@@ -17,8 +17,8 @@ const { generateText, listAvailableModels, getGeminiModel } = require("./_gemini
 const AI_REQUEST_LIMIT = 30;
 const AI_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TEXT_LENGTH = 20000;
-// Vercelの上限（30秒）内に収めるため、やり直しは残り時間がこれだけあるときだけ行います。
-const AI_TOTAL_BUDGET_MS = 26000;
+// Vercelの上限（60秒）内に収めるため、やり直しは残り時間がこれだけあるときだけ行います。
+const AI_TOTAL_BUDGET_MS = 52000;
 const AI_RETRY_MIN_MS = 6000;
 
 // 翻訳できる言語です。増やすときは、この1か所へ追加してください。
@@ -183,7 +183,9 @@ module.exports = async function handler(request, response) {
   const startedAt = Date.now();
 
   try {
-    let result = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction });
+    // 詳細要約は、理由や具体例を整理する必要があるため、少し深く考えさせます。
+    const thinkingLevel = action === "summarize-detail" ? "medium" : "low";
+    let result = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel });
 
     if (!result) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
@@ -199,8 +201,7 @@ module.exports = async function handler(request, response) {
 ・前回はあなたが原文をそのまま返してしまいました。今度は必ず${action === "translate" ? `${languageName}へ翻訳した` : "日本語で要約した"}文章を返してください`;
       const retryResult = await generateText(apiKey, [{ text: userText }], {
         systemInstruction: retryInstruction,
-        // 同じ答えを繰り返さないよう、少しだけ揺らぎを持たせます。
-        temperature: 0.3,
+        thinkingLevel,
         timeoutMs: remainingMs,
       });
 
