@@ -15,6 +15,16 @@ const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 // 音声を作るモデルです。文章用とは別のモデルを使います。
 // Vercelの環境変数 GEMINI_TTS_MODEL を設定した場合は、そちらが優先されます。
 const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
+// メインのモデルが混み合って使えない（503など）ときに、代わりに使うモデルです。
+// 少し品質は下がりますが、エラーで止まるより続けて使えることを優先します。
+const FALLBACK_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const FALLBACK_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+// Gemini側の一時的な不調を表す状態コードです。少し待ってやり直すと通ることが多いものです。
+const TRANSIENT_STATUSES = [500, 502, 503, 504];
+// 同じモデルでやり直すときの待ち時間です（この回数だけやり直します）。
+const TRANSIENT_RETRY_DELAYS_MS = [1000, 3000];
+// 残り時間がこれより短いときは、新しく問い合わせても間に合わないためやり直しません。
+const MIN_ATTEMPT_MS = 8000;
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 // 音声や画像を作るためのモデルは、文章の処理には使えないため候補から除きます。
@@ -38,6 +48,19 @@ function getGeminiModel() {
 function getGeminiTtsModel() {
   const model = (process.env.GEMINI_TTS_MODEL || "").trim();
   return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_TTS_MODEL;
+}
+
+// 使うモデルの順番です。メインのモデルのあとに、代わりのモデルを並べます。
+function getTextModels() {
+  return [...new Set([getGeminiModel(), FALLBACK_GEMINI_MODEL])];
+}
+
+function getTtsModels() {
+  return [...new Set([getGeminiTtsModel(), FALLBACK_GEMINI_TTS_MODEL])];
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Gemini側の説明をログへ残すために読み取ります。読み取れない場合は空にします。
@@ -112,14 +135,45 @@ async function requestGemini(apiKey, model, payload, timeoutMs) {
 }
 
 /**
+ * Geminiへ問い合わせ、一時的な不調（503など）のときは少し待ってやり直します。
+ * 同じモデルで何度やり直してもだめなときは、代わりのモデル（models の2番目以降）で試します。
+ * 全体で timeoutMs を超えないようにし、最後に受け取った返事と、そのモデル名を返します。
+ */
+async function requestGeminiWithRetry(apiKey, models, payload, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+
+  for (const model of models) {
+    for (let attempt = 0; ; attempt += 1) {
+      const remainingMs = deadline - Date.now();
+      if (last && remainingMs < MIN_ATTEMPT_MS) return last;
+      // 読まずに捨てる前の返事は、通信を開けたままにしないよう閉じておきます。
+      if (last) await last.response.body?.cancel().catch(() => {});
+
+      const response = await requestGemini(apiKey, model, payload, remainingMs);
+      last = { response, model };
+      if (!TRANSIENT_STATUSES.includes(response.status)) return last;
+
+      const delayMs = TRANSIENT_RETRY_DELAYS_MS[attempt];
+      console.error("Geminiが一時的に応答できませんでした。", response.status, model,
+        delayMs === undefined ? "代わりのモデルで試します。" : `${delayMs}ミリ秒待ってやり直します。`);
+      if (delayMs === undefined || deadline - Date.now() - delayMs < MIN_ATTEMPT_MS) break;
+      await sleep(delayMs);
+    }
+  }
+
+  return last;
+}
+
+/**
  * Geminiへ問い合わせて、返ってきた文章を取り出します。
  * 守ってほしいルール（options.systemInstruction）は、本文とは別の「指示」として渡します。
  * 本文の中に混ぜるより、指示として扱われやすくなるためです。
  * うまくいかなかったときは、呼び出し側が案内を選べるよう、状態コードを持たせて投げ直します。
  */
 async function generateText(apiKey, parts, options = {}) {
-  const model = getGeminiModel();
   const timeoutMs = options.timeoutMs || GEMINI_TIMEOUT_MS;
+  const startedAt = Date.now();
   const payload = {
     contents: [{ parts }],
     // Gemini 3.8 では temperature などの揺らぎの設定は使えないため、考える深さ（thinkingLevel）だけを指定します。
@@ -134,17 +188,17 @@ async function generateText(apiKey, parts, options = {}) {
     payload.system_instruction = { parts: [{ text: options.systemInstruction }] };
   }
 
-  let geminiResponse = await requestGemini(apiKey, model, payload, timeoutMs);
+  let { response: geminiResponse, model } = await requestGeminiWithRetry(apiKey, getTextModels(), payload, timeoutMs);
 
   // 環境変数で古いモデルを選んだときなど、「指示」や「考える深さ」の渡し方に対応していないときは、
   // 指示を本文の先頭へ入れ、考える深さを外してもう一度試します。
   if (geminiResponse.status === 400) {
     console.error("設定を受け付けなかったため、指示を本文へ入れて試し直します。", await readErrorBody(geminiResponse));
     const instructionParts = options.systemInstruction ? [{ text: options.systemInstruction }] : [];
-    geminiResponse = await requestGemini(apiKey, model, {
+    ({ response: geminiResponse, model } = await requestGeminiWithRetry(apiKey, [model], {
       contents: [{ parts: [...instructionParts, ...parts] }],
       generationConfig: { maxOutputTokens: payload.generationConfig.maxOutputTokens },
-    }, timeoutMs);
+    }, Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS)));
   }
 
   if (!geminiResponse.ok) {
@@ -178,8 +232,8 @@ async function generateText(apiKey, parts, options = {}) {
  * 音声が返らなかったときはnullを返し、案内は呼び出し側で選びます。
  */
 async function generateSpeech(apiKey, text, voiceName, options = {}) {
-  const model = getGeminiTtsModel();
   const timeoutMs = options.timeoutMs || GEMINI_TTS_TIMEOUT_MS;
+  const startedAt = Date.now();
   const generationConfig = {
     responseModalities: ["AUDIO"],
     speechConfig: {
@@ -188,7 +242,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
   };
   // 読み上げる文章はそのまま渡し、話し方の指示は speech_metadata として別に渡します。
   // 文章へ指示を混ぜると、指示まで読み上げてしまうことがあるためです。
-  let geminiResponse = await requestGemini(apiKey, model, {
+  let { response: geminiResponse, model } = await requestGeminiWithRetry(apiKey, getTtsModels(), {
     contents: [{ parts: [{ text, speech_metadata: { style: TTS_STYLE } }] }],
     generationConfig,
   }, timeoutMs);
@@ -196,10 +250,10 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
   // 話し方の指示に対応していないモデルのときは、文章だけで作り直します。
   if (geminiResponse.status === 400) {
     console.error("speech_metadataを受け付けなかったため、文章だけで試し直します。", await readErrorBody(geminiResponse));
-    geminiResponse = await requestGemini(apiKey, model, {
+    ({ response: geminiResponse, model } = await requestGeminiWithRetry(apiKey, [model], {
       contents: [{ parts: [{ text }] }],
       generationConfig,
-    }, timeoutMs);
+    }, Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS)));
   }
 
   if (!geminiResponse.ok) {

@@ -74,7 +74,7 @@ const MESSAGES = {
 function describeGeminiError(status) {
   if (status === 400 || status === 401 || status === 403) return MESSAGES.invalidKey;
   if (status === 404) return MESSAGES.invalidModel;
-  if (status === 429) return MESSAGES.busy;
+  if (status === 429 || status === 503) return MESSAGES.busy;
   return MESSAGES.failed;
 }
 

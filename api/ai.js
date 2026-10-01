@@ -232,7 +232,7 @@ module.exports = async function handler(request, response) {
     if (status) {
       const message = status === 400 || status === 401 || status === 403
         ? MESSAGES.invalidKey
-        : status === 429
+        : status === 429 || status === 503
           ? MESSAGES.busy
           : MESSAGES.failed;
       return response.status(502).json({ message, code: `AI-G${status}` });
