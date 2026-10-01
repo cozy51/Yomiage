@@ -12,20 +12,9 @@
  * 画像は読み取りのあいだだけ扱い、サーバーには保存しません。
  */
 
-const {
-  isAuthConfigured,
-  isAuthenticated,
-  checkRateLimit,
-  refundRateLimit,
-  describeRateLimitWait,
-  getClientKey,
-} = require("./_auth");
+const { isAuthConfigured, isAuthenticated } = require("./_auth");
 // Geminiの呼び出しとモデル名は、文章の処理（api/ai.js）と共通の処理を使います。
 const { getGeminiModel, generateText, listAvailableModels } = require("./_gemini");
-
-// 読み取りの呼び出しすぎを防ぐための上限です（少人数での利用を想定しています）。
-const OCR_REQUEST_LIMIT = 20;
-const OCR_WINDOW_MS = 10 * 60 * 1000;
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -74,7 +63,6 @@ const MESSAGES = {
   empty: "AIが文字を読み取れませんでした。通常OCRをお試しください。",
   notConfigured: "AI OCRを利用できません。パスワードの設定を確認してください。",
   needPassword: "AI OCRを利用するには、パスワードの入力が必要です。",
-  tooManyRequests: "短時間でのAI OCRの利用回数が上限に達しました。",
 };
 
 // Gemini側のエラーを、利用者への案内へ振り分けます。
@@ -120,14 +108,6 @@ module.exports = async function handler(request, response) {
     return response.status(401).json({ message: MESSAGES.needPassword, code: "AI-401" });
   }
 
-  const rateLimitKey = `ocr:${getClientKey(request)}`;
-  if (!checkRateLimit(rateLimitKey, OCR_REQUEST_LIMIT, OCR_WINDOW_MS)) {
-    return response.status(429).json({
-      message: `${MESSAGES.tooManyRequests}${describeRateLimitWait(rateLimitKey)}`,
-      code: "AI-429",
-    });
-  }
-
   // APIキーが未設定でも、アプリ全体は動き続けます（通常OCRはブラウザの中だけで動きます）。
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -164,8 +144,6 @@ module.exports = async function handler(request, response) {
     // 読み取った文章だけを返します。利用状況などの余分な情報は返しません。
     return response.status(200).json({ text });
   } catch (error) {
-    // Gemini側の不調などで失敗した分は、使った回数に数えません。
-    refundRateLimit(rateLimitKey);
     const status = error?.geminiStatus;
 
     // モデル名が原因のときは、使えるモデル名をそのまま案内します。

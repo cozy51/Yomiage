@@ -12,20 +12,9 @@
  * 再生・保存できる形（WAV）へ組み立てるのはブラウザ側です。
  */
 
-const {
-  isAuthConfigured,
-  isAuthenticated,
-  checkRateLimit,
-  refundRateLimit,
-  describeRateLimitWait,
-  getClientKey,
-} = require("./_auth");
+const { isAuthConfigured, isAuthenticated } = require("./_auth");
 const { generateSpeech, listAvailableModels, getGeminiTtsModel } = require("./_gemini");
 
-// 呼び出しすぎを防ぐための上限です（少人数での利用を想定しています）。
-// 長い文章は短く区切って何回も呼ぶため、文章の処理（api/ai.js）より多めにしています。
-const TTS_REQUEST_LIMIT = 60;
-const TTS_WINDOW_MS = 10 * 60 * 1000;
 // 1回で渡せる文章の長さです。長すぎるとVercelの制限時間（60秒）内に終わりません。
 // 画面側（script.js の AI_TTS_CHUNK_LENGTH）は、これより短く区切って送ります。
 const MAX_TEXT_LENGTH = 300;
@@ -38,7 +27,6 @@ const MESSAGES = {
   methodNotAllowed: "この操作は利用できません。",
   notConfigured: "AI音声を利用できません。パスワードの設定を確認してください。",
   needPassword: "AI音声を利用するには、パスワードの入力が必要です。",
-  tooManyRequests: "短時間でのAI音声の利用回数が上限に達しました。",
   unavailable: "AI音声を利用できません。しばらくしてから再度お試しください。",
   invalidRequest: "文章を受け取れませんでした。もう一度お試しください。",
   invalidVoice: "その音声には対応していません。",
@@ -80,14 +68,6 @@ module.exports = async function handler(request, response) {
     return response.status(401).json({ message: MESSAGES.needPassword, code: "TTS-401" });
   }
 
-  const rateLimitKey = `tts:${getClientKey(request)}`;
-  if (!checkRateLimit(rateLimitKey, TTS_REQUEST_LIMIT, TTS_WINDOW_MS)) {
-    return response.status(429).json({
-      message: `${MESSAGES.tooManyRequests}${describeRateLimitWait(rateLimitKey)}`,
-      code: "TTS-429",
-    });
-  }
-
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("GEMINI_API_KEYが設定されていません。Vercelの環境変数を確認してください。");
@@ -120,8 +100,6 @@ module.exports = async function handler(request, response) {
     // 音声データと、その形式（例: audio/L16;codec=pcm;rate=24000）だけを返します。
     return response.status(200).json({ audio: speech.audio, mimeType: speech.mimeType });
   } catch (error) {
-    // Gemini側の不調などで失敗した分は、使った回数に数えません。
-    refundRateLimit(rateLimitKey);
     const status = error?.geminiStatus;
 
     if (status === 404) {

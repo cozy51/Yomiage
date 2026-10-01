@@ -175,25 +175,6 @@ function checkRateLimit(key, limit, windowMs) {
   return true;
 }
 
-// Gemini側の不調などで処理が失敗したときに、数えた1回分を戻します。
-// 失敗してやり直した分まで数えると、すぐに上限に達してしまうためです。
-function refundRateLimit(key) {
-  const bucket = rateLimitBuckets.get(key);
-  if (bucket && bucket.count > 0) bucket.count -= 1;
-}
-
-// 上限に達したとき、あとどれくらい待てば使えるようになるかを返します。
-function getRateLimitWaitMs(key) {
-  const bucket = rateLimitBuckets.get(key);
-  return bucket ? Math.max(0, bucket.resetAt - Date.now()) : 0;
-}
-
-// 待ち時間を「あと約○分」の形にします。
-function describeRateLimitWait(key) {
-  const minutes = Math.max(1, Math.ceil(getRateLimitWaitMs(key) / 60000));
-  return `あと約${minutes}分お待ちください。`;
-}
-
 function getClientKey(request) {
   const forwarded = request.headers?.["x-forwarded-for"] || "";
   return String(forwarded).split(",")[0].trim() || request.socket?.remoteAddress || "unknown";
@@ -208,8 +189,6 @@ module.exports = {
   isAuthenticated,
   buildSessionCookie,
   checkRateLimit,
-  refundRateLimit,
-  describeRateLimitWait,
   getClientKey,
   getLoginLockoutMs,
   recordLoginFailure,
