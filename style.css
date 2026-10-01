@@ -558,6 +558,16 @@ input[type="range"] {
   margin-top: 28px;
 }
 
+/* 画面の一番下に、使用しているAIモデルを小さく表示します。 */
+.model-info {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.5;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 /* ボタンの文言が、語の途中で折り返されないようにします。 */
 .nowrap {
   white-space: nowrap;

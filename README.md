@@ -270,6 +270,8 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 
 Vercelの環境変数に `GEMINI_MODEL` を設定した場合は、そちらが優先されます。コードを変えずに別のモデルを試したいときに使えます（`Settings` → `Environment Variables` で `GEMINI_MODEL` を追加し、再デプロイしてください）。値が空のときや使えない形のときは、`DEFAULT_GEMINI_MODEL` に戻ります。
 
+使用しているモデル名は、画面の一番下に「使用AIモデル」として小さく表示されます（`/api/models` から取得するため、環境変数で変更した場合もその名前が表示されます）。`DEFAULT_GEMINI_MODEL` などを書き換えたときは、`index.html` の `model-info` に書いた既定の表示（取得できないときに使われます）も合わせて変更してください。
+
 モデル名が使えない場合（`AI-G404`）は、そのAPIキーで利用できるモデル名を問い合わせて、案内のなかに例として表示します。表示された名前を `GEMINI_MODEL` へ設定するか、`DEFAULT_GEMINI_MODEL` を書き換えてください。
 
 初期設定は「Microsoft 七海」（利用可能な場合）と2.0倍速です。七海が利用できない環境では、既定の日本語音声などが自動的に選択されます。
@@ -327,6 +329,7 @@ GitHub Pagesなど、サーバー処理を持たない場所でも公開でき�
 │   ├── ai.js              # AIで翻訳・要約する
 │   ├── tts.js             # AI音声（Gemini TTS）で読み上げる音声を作る
 │   ├── login.js           # AI機能のパスワード認証
+│   ├── models.js          # 画面の一番下に表示する使用AIモデル名を返す
 │   ├── _auth.js           # 認証とレート制限の共通処理
 │   └── _gemini.js         # Gemini APIの呼び出しとモデル名の設定
 ├── vercel.json            # AIの機能（OCR・翻訳/要約・音声）の処理時間の設定
