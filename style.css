@@ -350,7 +350,7 @@ select:focus {
   color: #92400e;
 }
 
-/* 処理方法（そのまま / 高精度OCR / 要約 / 詳細要約 / 翻訳）の選択です。 */
+/* 処理方法（無料OCR / 高精度OCR / 要約 / 詳細要約 / 翻訳）の選択です。 */
 .process-mode {
   margin: 14px 0 0;
   padding: 8px 16px 14px;
