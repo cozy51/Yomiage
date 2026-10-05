@@ -132,7 +132,7 @@ module.exports = async function handler(request, response) {
   }
 
   try {
-    const { text, model } = await generateText(apiKey, [
+    const { text, model, modelVersion } = await generateText(apiKey, [
       { text: OCR_PROMPT },
       { inline_data: { mime_type: mimeType, data: image } },
     ], { priority: body?.modelPriority });
@@ -141,8 +141,8 @@ module.exports = async function handler(request, response) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
     }
 
-    // 読み取った文章と、使ったモデル名だけを返します。利用状況などの余分な情報は返しません。
-    return response.status(200).json({ text, model });
+    // 読み取った文章と、使ったモデル名（とその版）だけを返します。利用状況などの余分な情報は返しません。
+    return response.status(200).json({ text, model, modelVersion });
   } catch (error) {
     const status = error?.geminiStatus;
 

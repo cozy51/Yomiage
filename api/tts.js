@@ -13,7 +13,7 @@
  */
 
 const { isAuthConfigured, isAuthenticated } = require("./_auth");
-const { generateSpeech, listAvailableModels, getGeminiTtsModel } = require("./_gemini");
+const { generateSpeech, listAvailableModels } = require("./_gemini");
 
 // 1回で渡せる文章の長さです。長すぎるとVercelの制限時間（60秒）内に終わりません。
 // 画面側（script.js の AI_TTS_CHUNK_LENGTH）は、これより短く区切って送ります。
@@ -98,14 +98,14 @@ module.exports = async function handler(request, response) {
       return response.status(502).json({ message: MESSAGES.empty, code: "TTS-EMPTY" });
     }
 
-    // 音声データと、その形式（例: audio/L16;codec=pcm;rate=24000）、使ったモデル名だけを返します。
-    return response.status(200).json({ audio: speech.audio, mimeType: speech.mimeType, model: speech.model });
+    // 音声データと、その形式（例: audio/L16;codec=pcm;rate=24000）、使ったモデル名とその版だけを返します。
+    return response.status(200).json({ audio: speech.audio, mimeType: speech.mimeType, model: speech.model, modelVersion: speech.modelVersion });
   } catch (error) {
     const status = error?.geminiStatus;
 
     if (status === 404) {
       const availableModels = await listAvailableModels(apiKey, { tts: true });
-      console.error("使用した音声モデル名:", getGeminiTtsModel(), "/ 利用できる音声モデル:", availableModels.join(", ") || "（取得できませんでした）");
+      console.error("使用した音声モデル名:", (error?.geminiModels || [error?.geminiModel]).join(", "), "/ 利用できる音声モデル:", availableModels.join(", ") || "（取得できませんでした）");
       const hint = availableModels.length
         ? `利用できる音声モデルの例: ${availableModels.slice(0, 8).join(" / ")}`
         : "";

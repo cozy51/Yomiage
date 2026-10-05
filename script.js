@@ -841,6 +841,19 @@ function updateCurrentChips() {
   updateUsedModel();
 }
 
+// 音声モデルの名前を取得できないときに、画面の一番下の表へ出す名前です。
+const AUTO_MODEL_LABEL = "自動（最新）";
+
+/**
+ * サーバーから受け取った「使ったモデル名」を、画面に表示する形にします。
+ * 「-latest」のように名前と実際の版が違うときは、実際の版をかっこで添えます。
+ */
+function readModelLabel(result) {
+  const model = typeof result?.model === "string" ? result.model : "";
+  const version = typeof result?.modelVersion === "string" ? result.modelVersion : "";
+  return model && version && version !== model ? `${model}（${version}）` : model;
+}
+
 /**
  * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名を小さく表示します。
  * 混み合っていて代わりのモデルへ切り替えたときは、そのことも添えます。
@@ -850,7 +863,10 @@ function updateUsedModel() {
   const usedModelText = document.getElementById("used-model");
   const primaryTextModel = document.getElementById("model-text").textContent;
   const primaryTtsModel = document.getElementById("model-tts").textContent;
-  const describe = (model, primary) => (primary && model !== primary ? `${model}（混雑のため切替）` : model);
+  // 「-latest」のように実際の版を添えた名前（例：gemini-flash-lite-latest（gemini-3.5-flash-lite））は、添えた部分を除いて比べます。
+  // 音声モデルの名前を取得できず「自動（最新）」と表示しているときは、切り替えたかどうかは添えません。
+  const describe = (model, primary) => (primary && primary !== AUTO_MODEL_LABEL && model.split("（")[0] !== primary
+    ? `${model}（混雑のため切替）` : model);
   const parts = [];
 
   const aiMode = getTextAiMode();
@@ -1648,7 +1664,7 @@ async function recognizeWithGemini(file) {
     }
 
     // 読み取った文章と、使ったモデル名を受け取ります。
-    lastAiOcrModel = typeof result.model === "string" ? result.model : "";
+    lastAiOcrModel = readModelLabel(result);
     return result.text;
   } finally {
     window.clearTimeout(timeoutId);
@@ -1887,7 +1903,7 @@ async function requestAiText(mode, text) {
     }
 
     // unchangedは、AIが原文をそのまま返したことを示す印です。
-    return { text: result.text, unchanged: Boolean(result.unchanged), model: typeof result.model === "string" ? result.model : "" };
+    return { text: result.text, unchanged: Boolean(result.unchanged), model: readModelLabel(result) };
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -2371,7 +2387,7 @@ async function requestAiSpeech(text, voice, priority) {
     return {
       pcm: decodeBase64(result.audio),
       sampleRate: getAudioSampleRate(result.mimeType),
-      model: typeof result.model === "string" ? result.model : "",
+      model: readModelLabel(result),
     };
   } finally {
     window.clearTimeout(timeoutId);
@@ -2608,9 +2624,10 @@ window.addEventListener("beforeunload", () => synthesis.cancel());
 // 画面の一番下に、選んでいる優先順位で使うAIモデル名を表示します。
 // サーバー側で実際に使う順番（/api/models）を取得し、取得できないとき（ローカルで開いたときなど）は既定の名前を使います。
 // 並びは「最初に使うモデル」「混み合っているときなどに切り替える先のモデル」の順です。
+// 音声モデルはサーバー側が最新のものを自動で選ぶため、取得できないときは「自動（最新）」と表示します。
 let modelLists = {
-  economy: { text: ["gemini-3.5-flash-lite", "gemini-3.8-flash"], tts: ["gemini-3.1-flash-tts-preview", "gemini-3.8-flash-tts"] },
-  standard: { text: ["gemini-3.8-flash", "gemini-3.5-flash-lite"], tts: ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview"] },
+  economy: { text: ["gemini-flash-lite-latest", "gemini-flash-latest"], tts: [AUTO_MODEL_LABEL] },
+  standard: { text: ["gemini-flash-latest", "gemini-flash-lite-latest"], tts: [AUTO_MODEL_LABEL] },
 };
 
 function renderModelInfo() {

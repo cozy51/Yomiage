@@ -183,7 +183,7 @@ module.exports = async function handler(request, response) {
     const thinkingLevel = action === "summarize-detail" ? "medium" : "low";
     // 画面で選んだ「どちらのモデルを先に使うか」です。
     const priority = body?.modelPriority;
-    let { text: result, model } = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel, priority });
+    let { text: result, model, modelVersion } = await generateText(apiKey, [{ text: userText }], { systemInstruction: instruction, thinkingLevel, priority });
 
     if (!result) {
       return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
@@ -197,7 +197,7 @@ module.exports = async function handler(request, response) {
       const retryInstruction = `${instruction}
 
 ・前回はあなたが原文をそのまま返してしまいました。今度は必ず${action === "translate" ? `${languageName}へ翻訳した` : "日本語で要約した"}文章を返してください`;
-      const { text: retryResult, model: retryModel } = await generateText(apiKey, [{ text: userText }], {
+      const { text: retryResult, model: retryModel, modelVersion: retryModelVersion } = await generateText(apiKey, [{ text: userText }], {
         systemInstruction: retryInstruction,
         thinkingLevel,
         priority,
@@ -207,13 +207,14 @@ module.exports = async function handler(request, response) {
       if (retryResult && !isSameText(retryResult, text)) {
         result = retryResult;
         model = retryModel;
+        modelVersion = retryModelVersion;
         unchanged = false;
       }
     }
 
-    // 処理した文章と、使ったモデル名だけを返します。余分な情報は返しません。
+    // 処理した文章と、使ったモデル名（とその版）だけを返します。余分な情報は返しません。
     // unchangedは、原文と中身が変わらなかったことを画面へ伝えるための印です。
-    return response.status(200).json({ text: result, unchanged, model });
+    return response.status(200).json({ text: result, unchanged, model, modelVersion });
   } catch (error) {
     const status = error?.geminiStatus;
 

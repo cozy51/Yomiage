@@ -9,22 +9,31 @@
  * ファイル名が「_」で始まるものは、Vercelでは公開されるAPIになりません（共通処理用）。
  */
 
-// 使用するGeminiのモデル名です。変更するときは、この1か所だけを書き換えてください。
+// 使用するGeminiの「廉価モデル」です（画像の読み取りと文章の処理で共通です）。
+// 「-latest」はGoogleが用意している別名で、常にその時点の最新版を指します。
+// 新しいモデルが出ても、古いモデルが使えなくなっても、ここを書き換える必要はありません。
 // Vercelの環境変数 GEMINI_MODEL を設定した場合は、そちらが優先されます。
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-// 音声を作るモデルです。文章用とは別のモデルを使います。
-// Vercelの環境変数 GEMINI_TTS_MODEL を設定した場合は、そちらが優先されます。
-const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+const DEFAULT_GEMINI_MODEL = "gemini-flash-lite-latest";
 // 品質の高い「通常モデル」です。画面で「通常モデル優先」を選んだときに最初に使い、
 // 「廉価モデル優先」のときは、廉価モデルが混み合っている・利用上限に達した（429・503など）ときの代わりに使います。
 // 利用上限はモデルごとに別々のため、別のモデルに切り替えると続けて使えることが多くなります。
-const STANDARD_GEMINI_MODEL = "gemini-3.8-flash";
+const STANDARD_GEMINI_MODEL = "gemini-flash-latest";
+// 音声を作るモデルには「-latest」の別名がないため、そのAPIキーで使えるモデルの一覧から最新のものを自動で選びます。
+// 下の2つは、一覧を取得できなかったときにだけ使う予備の名前です。
+// 環境変数 GEMINI_TTS_MODEL を設定した場合は、廉価モデル優先で最初に使う音声モデルとして、そちらが優先されます。
+const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
 const STANDARD_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
+// 音声モデルの一覧を覚えておく時間です。古いモデルが使えなくなったときは、この時間を待たずに取り直します。
+const TTS_MODEL_CACHE_MS = 6 * 60 * 60 * 1000;
+// 一覧を取得できなかったときは、少し間をあけてから取り直します。
+const TTS_MODEL_RETRY_MS = 5 * 60 * 1000;
 // 画面で選べる「どちらのモデルを先に使うか」です。economy = 廉価モデル優先（既定）、standard = 通常モデル優先。
 const MODEL_PRIORITIES = ["economy", "standard"];
 const DEFAULT_MODEL_PRIORITY = "economy";
 // Gemini 3.8 以降のモデルです。temperature が使えず、考える深さ（thinkingLevel）や話し方の指示を使います。
+// 「-latest」のように名前から世代が分からないモデルは、新しい世代として扱い、受け付けなければ別の渡し方で試します。
 const NEW_GENERATION_MODEL_PATTERN = /^gemini-(3\.[89]|[4-9])/;
+const VERSIONED_MODEL_PATTERN = /^gemini-\d/;
 // Gemini側の一時的な不調を表す状態コードです。少し待ってやり直すと通ることが多いものです。
 const TRANSIENT_STATUSES = [500, 502, 503, 504];
 // 利用上限に達したときに、同じモデルで待ってやり直す最長の時間です。これより長く待つ必要があるときは、やり直しません。
@@ -52,12 +61,6 @@ function getGeminiModel() {
   return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_MODEL;
 }
 
-// 音声を作るモデル名です。こちらも環境変数で差し替えられます。
-function getGeminiTtsModel() {
-  const model = (process.env.GEMINI_TTS_MODEL || "").trim();
-  return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_TTS_MODEL;
-}
-
 // 画面から届いた値を、使える優先順位に直します。分からない値のときは既定（廉価モデル優先）にします。
 function normalizeModelPriority(priority) {
   return MODEL_PRIORITIES.includes(priority) ? priority : DEFAULT_MODEL_PRIORITY;
@@ -71,8 +74,73 @@ function getTextModels(priority) {
   return [...new Set(models)];
 }
 
-function getTtsModels(priority) {
-  const models = [getGeminiTtsModel(), STANDARD_GEMINI_TTS_MODEL];
+// 音声モデルの一覧から選んだ結果です（Vercelの同じ実行環境が使われているあいだ覚えておきます）。
+let ttsModelCache = null;
+
+// 音声モデルの名前から、世代（3.8 など）と種類（flash-lite / flash / pro）を読み取ります。
+function parseTtsModel(name) {
+  const matched = /^gemini-(\d+)(?:\.(\d+))?-(flash-lite|flash|pro)-.*tts/.exec(name);
+  if (!matched) return null;
+  return {
+    name,
+    major: Number(matched[1]),
+    minor: Number(matched[2] || 0),
+    tier: matched[3],
+    preview: /preview|exp/.test(name),
+  };
+}
+
+// 新しい世代を先に、同じ世代なら正式版（previewでないもの）を先に並べます。
+function compareTtsModels(a, b) {
+  return (b.major - a.major) || (b.minor - a.minor)
+    || (Number(a.preview) - Number(b.preview)) || b.name.localeCompare(a.name);
+}
+
+/**
+ * 使える音声モデルの一覧から、通常モデルと廉価モデルを選びます。
+ * - 通常モデル：最新のflash
+ * - 廉価モデル：flash-liteの音声モデルがあれば、その最新。なければ、通常モデルより1つ前の世代のflash
+ *   （前の世代のほうが料金が安く、利用上限も別々のためです）。どちらもなければ通常モデルと同じにします。
+ * pro は料金が高いため選びません。
+ */
+function pickTtsModels(names) {
+  const models = names.map(parseTtsModel).filter(Boolean).sort(compareTtsModels);
+  const flash = models.filter((model) => model.tier === "flash");
+  const lite = models.filter((model) => model.tier === "flash-lite");
+  const standard = flash[0] || lite[0];
+  if (!standard) return null;
+
+  const olderFlash = flash.find((model) => model.major < standard.major
+    || (model.major === standard.major && model.minor < standard.minor));
+  const economy = lite[0] || olderFlash || standard;
+  return { economy: economy.name, standard: standard.name };
+}
+
+/**
+ * 音声モデルを選び直します。一覧を取得できなかったときは、予備の名前を使います。
+ * options.refresh を付けると、覚えている結果を使わずに取り直します（古いモデルが使えなくなったときなど）。
+ */
+async function resolveTtsModels(apiKey, options = {}) {
+  const now = Date.now();
+  if (!options.refresh && ttsModelCache && ttsModelCache.expiresAt > now) return ttsModelCache.models;
+
+  const picked = apiKey ? pickTtsModels(await listAvailableModels(apiKey, { tts: true })) : null;
+  if (picked) {
+    ttsModelCache = { models: picked, expiresAt: now + TTS_MODEL_CACHE_MS };
+    return picked;
+  }
+
+  // 取得できなかったときは、前に選んだ結果があればそれを、なければ予備の名前を使います。
+  const models = ttsModelCache?.models || { economy: DEFAULT_GEMINI_TTS_MODEL, standard: STANDARD_GEMINI_TTS_MODEL };
+  ttsModelCache = { models, expiresAt: now + TTS_MODEL_RETRY_MS };
+  return models;
+}
+
+async function getTtsModels(apiKey, priority, options = {}) {
+  const resolved = await resolveTtsModels(apiKey, options);
+  const envModel = (process.env.GEMINI_TTS_MODEL || "").trim();
+  const economy = GEMINI_MODEL_PATTERN.test(envModel) ? envModel : resolved.economy;
+  const models = [economy, resolved.standard];
   if (normalizeModelPriority(priority) === "standard") models.reverse();
   return [...new Set(models)];
 }
@@ -100,7 +168,7 @@ async function listAvailableModels(apiKey, options = {}) {
   const wantsTts = Boolean(options.tts);
 
   try {
-    const modelsResponse = await fetch(`${GEMINI_API_BASE}/models?pageSize=100`, {
+    const modelsResponse = await fetch(`${GEMINI_API_BASE}/models?pageSize=1000`, {
       headers: { "x-goog-api-key": apiKey },
       signal: AbortSignal.timeout(GEMINI_MODEL_LIST_TIMEOUT_MS),
     });
@@ -204,8 +272,30 @@ async function readLastErrorBody(last) {
   return last.errorBody !== null ? last.errorBody : readErrorBody(last.response);
 }
 
+// 名前から世代が分からないモデル（「-latest」など）は、新しい世代として扱います。
 function isNewGenerationModel(model) {
-  return NEW_GENERATION_MODEL_PATTERN.test(model);
+  return NEW_GENERATION_MODEL_PATTERN.test(model) || !VERSIONED_MODEL_PATTERN.test(model);
+}
+
+// 文章を作るときの設定の渡し方です。モデルの世代によって、受け付ける渡し方が違います。
+// - thinking：Gemini 3.8 以降向け。temperature は使えないため、考える深さ（thinkingLevel）を指定します
+// - temperature：それより前のモデル向け。temperature 0 で、毎回同じように忠実に答えさせます
+// - plain：どちらも受け付けないときの最後の手段。指示を本文の先頭へ入れ、細かい設定を外します
+const TEXT_PAYLOAD_STYLES = ["thinking", "temperature", "plain"];
+// モデルごとに、受け付けられた渡し方を覚えておきます。
+// 「-latest」の中身が新しい世代に切り替わって受け付けなくなったときは、ほかの渡し方を順に試し直します。
+const acceptedTextPayloadStyles = new Map();
+
+function getTextPayloadStyles(model) {
+  const remembered = acceptedTextPayloadStyles.get(model);
+  const preferred = remembered || (isNewGenerationModel(model) ? "thinking" : "temperature");
+  return [preferred, ...TEXT_PAYLOAD_STYLES.filter((style) => style !== preferred)];
+}
+
+// 返事に書かれている、実際に使われたモデルの版です（「-latest」がどの版を指していたかが分かります）。
+function readModelVersion(result) {
+  const version = String(result?.modelVersion || "").replace(/^models\//, "");
+  return GEMINI_MODEL_PATTERN.test(version) ? version : "";
 }
 
 /**
@@ -217,38 +307,50 @@ function isNewGenerationModel(model) {
 async function generateText(apiKey, parts, options = {}) {
   const timeoutMs = options.timeoutMs || GEMINI_TIMEOUT_MS;
   const startedAt = Date.now();
-  // モデルの世代によって、使える設定が違います。
-  // Gemini 3.8 以降：temperature は使えないため、考える深さ（thinkingLevel）を指定し、考えた分も含めて上限を多めにします。
-  // それより前：temperature 0 で、毎回同じように忠実に答えさせます。
-  const buildGenerationConfig = (model) => (isNewGenerationModel(model)
-    ? {
-      maxOutputTokens: options.maxOutputTokens || 16384,
-      thinkingConfig: { thinkingLevel: options.thinkingLevel || DEFAULT_THINKING_LEVEL },
+  const instruction = options.systemInstruction ? { system_instruction: { parts: [{ text: options.systemInstruction }] } } : {};
+  const instructionParts = options.systemInstruction ? [{ text: options.systemInstruction }] : [];
+  const buildPayload = (style) => {
+    if (style === "thinking") {
+      // 考えた分も含めて、出力の上限を多めにします。
+      return {
+        contents: [{ parts }],
+        generationConfig: {
+          maxOutputTokens: options.maxOutputTokens || 16384,
+          thinkingConfig: { thinkingLevel: options.thinkingLevel || DEFAULT_THINKING_LEVEL },
+        },
+        ...instruction,
+      };
     }
-    : {
-      temperature: 0,
-      maxOutputTokens: options.maxOutputTokens || 8192,
-    });
-  const buildPayload = (model) => ({
-    contents: [{ parts }],
-    generationConfig: buildGenerationConfig(model),
-    ...(options.systemInstruction ? { system_instruction: { parts: [{ text: options.systemInstruction }] } } : {}),
-  });
-
-  let last = await requestGeminiWithRetry(apiKey, getTextModels(options.priority), buildPayload, timeoutMs);
-  let { response: geminiResponse, model } = last;
-
-  // 環境変数で古いモデルを選んだときなど、「指示」や「考える深さ」の渡し方に対応していないときは、
-  // 指示を本文の先頭へ入れ、考える深さを外してもう一度試します。
-  if (geminiResponse.status === 400) {
-    console.error("設定を受け付けなかったため、指示を本文へ入れて試し直します。", await readLastErrorBody(last));
-    const instructionParts = options.systemInstruction ? [{ text: options.systemInstruction }] : [];
-    last = await requestGeminiWithRetry(apiKey, [model], (retryModel) => ({
+    if (style === "temperature") {
+      return {
+        contents: [{ parts }],
+        generationConfig: { temperature: 0, maxOutputTokens: options.maxOutputTokens || 8192 },
+        ...instruction,
+      };
+    }
+    return {
       contents: [{ parts: [...instructionParts, ...parts] }],
-      generationConfig: { maxOutputTokens: buildGenerationConfig(retryModel).maxOutputTokens },
-    }), Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS));
+      generationConfig: { maxOutputTokens: options.maxOutputTokens || 16384 },
+    };
+  };
+
+  let last = await requestGeminiWithRetry(apiKey, getTextModels(options.priority),
+    (model) => buildPayload(getTextPayloadStyles(model)[0]), timeoutMs);
+  let { response: geminiResponse, model } = last;
+  const styles = getTextPayloadStyles(model);
+  let style = styles.shift();
+
+  // 設定の渡し方を受け付けなかったとき（400）は、ほかの渡し方で順に試し直します。
+  while (geminiResponse.status === 400 && styles.length) {
+    const nextStyle = styles.shift();
+    console.error(`設定（${style}）を受け付けなかったため、別の渡し方（${nextStyle}）で試し直します。`, model, await readLastErrorBody(last));
+    style = nextStyle;
+    last = await requestGeminiWithRetry(apiKey, [model], () => buildPayload(style),
+      Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS));
     ({ response: geminiResponse, model } = last);
   }
+
+  if (geminiResponse.ok) acceptedTextPayloadStyles.set(model, style);
 
   if (!geminiResponse.ok) {
     // 原因を追えるよう、Gemini側の説明もVercelのログへ残します（APIキーは含みません）。
@@ -272,7 +374,8 @@ async function generateText(apiKey, parts, options = {}) {
   }
 
   // どのモデルで作ったかも返します（混み合っていて代わりのモデルを使ったことが、画面で分かるようにするためです）。
-  return { text, model };
+  // modelVersion は、「-latest」が実際に指していた版です。
+  return { text, model, modelVersion: readModelVersion(result) };
 }
 
 /**
@@ -292,11 +395,26 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
   };
   // Gemini 3.8 以降の音声モデルには、話し方の指示を speech_metadata として文章とは別に渡します。
   // 文章へ指示を混ぜると、指示まで読み上げてしまうことがあるためです。それより前のモデルには文章だけを渡します。
-  let last = await requestGeminiWithRetry(apiKey, getTtsModels(options.priority), (model) => ({
+  const buildPayload = (model) => ({
     contents: [{ parts: [isNewGenerationModel(model) ? { text, speech_metadata: { style: TTS_STYLE } } : { text }] }],
     generationConfig,
-  }), timeoutMs);
+  });
+  const remainingMs = () => Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS);
+  let models = await getTtsModels(apiKey, options.priority);
+  let last = await requestGeminiWithRetry(apiKey, models, buildPayload, remainingMs());
   let { response: geminiResponse, model } = last;
+
+  // モデルが見つからないとき（404）は、古いモデルが使えなくなった可能性があるため、
+  // 使えるモデルの一覧を取り直し、選び直したモデルでもう一度試します。
+  if (geminiResponse.status === 404) {
+    const refreshed = await getTtsModels(apiKey, options.priority, { refresh: true });
+    if (refreshed.join() !== models.join()) {
+      console.error("音声モデルが見つからなかったため、選び直して試します。", model, "→", refreshed.join(", "));
+      models = refreshed;
+      last = await requestGeminiWithRetry(apiKey, models, buildPayload, remainingMs());
+      ({ response: geminiResponse, model } = last);
+    }
+  }
 
   // 話し方の指示を受け付けなかったときは、文章だけで作り直します。
   if (geminiResponse.status === 400 && isNewGenerationModel(model)) {
@@ -304,7 +422,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
     last = await requestGeminiWithRetry(apiKey, [model], () => ({
       contents: [{ parts: [{ text }] }],
       generationConfig,
-    }), Math.max(timeoutMs - (Date.now() - startedAt), MIN_ATTEMPT_MS));
+    }), remainingMs());
     ({ response: geminiResponse, model } = last);
   }
 
@@ -315,6 +433,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
     const error = new Error(`Gemini responded with ${geminiResponse.status}`);
     error.geminiStatus = geminiResponse.status;
     error.geminiModel = model;
+    error.geminiModels = models;
     // 混み合っているときは、どれくらい待てばよいかも一緒に持たせます。
     error.retryAfterMs = readRetryAfterMs(errorBody);
     throw error;
@@ -330,7 +449,7 @@ async function generateSpeech(apiKey, text, voiceName, options = {}) {
     return null;
   }
 
-  return { audio: audioPart.inlineData.data, mimeType: audioPart.inlineData.mimeType, model };
+  return { audio: audioPart.inlineData.data, mimeType: audioPart.inlineData.mimeType, model, modelVersion: readModelVersion(result) };
 }
 
 module.exports = {
@@ -339,7 +458,7 @@ module.exports = {
   GEMINI_TIMEOUT_MS,
   GEMINI_TTS_TIMEOUT_MS,
   getGeminiModel,
-  getGeminiTtsModel,
+  resolveTtsModels,
   getTextModels,
   getTtsModels,
   normalizeModelPriority,
