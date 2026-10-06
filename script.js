@@ -195,6 +195,18 @@ function removeTablePipes(text) {
 }
 
 /**
+ * ファイルやフォルダのパスは、記号や階層が延々と読み上げられて聞き取りにくいため、
+ * 読み上げる文章から取り除きます。入力欄の文章はそのまま残します。
+ * 対象：ネットワーク上の場所（\\サーバー名\共有名\…）と、ドライブから始まる場所（C:\…、C:/…）。
+ * 区切りの「\」は、日本語の環境で表示される「¥」「￥」「＼」も含めます。
+ * パスの途中に空白はないものとみなし、空白・改行までをパスとして扱います。
+ * 例：\\Mtc-nas32\3400_CFA技術\300_業務\01_動画 → （読み上げない）
+ */
+function removeFilePaths(text) {
+  return text.replace(/(?:[\\¥￥＼]{2}|(?<![A-Za-z0-9])[A-Za-z]:[\\/¥￥＼])[^\s"'<>|「」『』]+/g, "");
+}
+
+/**
  * ChatGPTなどからコピーした文章に残る、出典リンク用の制御文字列を取り除きます。
  * 読み上げても意味がわからないため、読み上げる文章から除外します。
  * 例：:chatgpt-content-reference{index="3"}、::contentReference[oaicite:3]{index=3}、
@@ -224,7 +236,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(removeBackquotes(removeTablePipes(removeCitationMarkers(text.replace(/\r\n?/g, "\n"))))).trim();
+  const normalized = replaceUnsafeSymbols(removeBackquotes(removeTablePipes(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n")))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
