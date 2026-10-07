@@ -73,6 +73,13 @@ const START_TIMEOUT_MS = 1600;
 const REMOTE_START_TIMEOUT_MS = 5000;
 const START_RETRY_DELAY_MS = 250;
 const MAX_START_RETRIES = 2;
+// しばらく読み上げていないと、音声エンジンや音の出力先が休止して、次の開始が遅れます。
+// この時間より長く使っていなければ、画面へ戻ったときなどに改めて起こしておきます。
+const PRIME_IDLE_MS = 20000;
+// 起こすための無音の発話が終わったと知らせてこない場合に、待つのをやめるまでの時間です。
+const PRIME_TIMEOUT_MS = 3000;
+// 無音の発話の後ろに本来の発話を並べたとき、開始の見張りを延ばす時間です。
+const PRIME_WAIT_EXTRA_MS = 1000;
 
 // pause/resumeによる時間切れ対策はパソコン向けブラウザでのみ有効なため、端末を判定します。
 const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -108,7 +115,11 @@ let startTimerId = 0;
 let startRetryCount = 0;
 let hasUtteranceStarted = false;
 let isWaitingForStart = false;
-let hasPrimedSynthesis = false;
+// 音声エンジンを起こすための無音の発話が、まだ再生待ち・再生中かどうかです。
+let isPrimingSynthesis = false;
+let primeTimerId = 0;
+// 最後に音声エンジンを使った（または起こした）時刻です。0は一度も使っていないことを表します。
+let lastSynthesisActivityAt = 0;
 
 // ページ送りで移動する先です。まとめて処理するまでの間だけ使います。
 let jumpTimerId = 0;
@@ -595,19 +606,43 @@ function stopPlaybackTimers() {
 }
 
 /**
- * 音声エンジンは最初の1回だけ起動に時間がかかり、読み上げ開始が遅れることがあります。
- * 画面を最初に触った時点で音量0の発話を通し、エンジンを先に起こしておきます。
- * 読み上げボタン自体の操作では行いません（直後のcancelが本来の発話を打ち消すため）。
+ * 音声エンジンは、起動直後やしばらく使っていなかった後に、読み上げ開始が遅れることがあります。
+ * 画面を触ったときや画面へ戻ったときに音量0の発話を通し、エンジンを先に起こしておきます。
+ * 読み上げを始めるときは、この発話を打ち消さずに後ろへ並べるため、本来の発話は妨げません。
  */
 function primeSpeechSynthesis() {
-  if (hasPrimedSynthesis || isReading) return;
-  hasPrimedSynthesis = true;
+  if (isReading || isPrimingSynthesis) return;
+  if (lastSynthesisActivityAt && Date.now() - lastSynthesisActivityAt < PRIME_IDLE_MS) return;
+  // 他の読み上げが残っているときは、それを邪魔しないよう何もしません。
+  if (synthesis.speaking || synthesis.pending) return;
+
+  lastSynthesisActivityAt = Date.now();
   try {
     const warmUp = new SpeechSynthesisUtterance("\u3000");
     warmUp.volume = 0;
     warmUp.lang = "ja-JP";
+    const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
+    // 実際に使う音声を起こしておくと、その音声の準備も先に済みます。
+    if (selectedVoice) {
+      warmUp.voice = selectedVoice;
+      warmUp.lang = selectedVoice.lang;
+    }
+    const finishPriming = () => {
+      window.clearTimeout(primeTimerId);
+      primeTimerId = 0;
+      isPrimingSynthesis = false;
+      lastSynthesisActivityAt = Date.now();
+    };
+    warmUp.onend = finishPriming;
+    warmUp.onerror = finishPriming;
+    isPrimingSynthesis = true;
+    // 終了の知らせが届かないブラウザでも、いつまでも待ち続けないようにします。
+    window.clearTimeout(primeTimerId);
+    primeTimerId = window.setTimeout(finishPriming, PRIME_TIMEOUT_MS);
+    releasePendingPause();
     synthesis.speak(warmUp);
   } catch (error) {
+    isPrimingSynthesis = false;
     console.warn("音声エンジンの事前準備に失敗しました。", error);
   }
 }
@@ -626,6 +661,7 @@ function markUtteranceStarted() {
   startTimerId = 0;
   hasUtteranceStarted = true;
   startRetryCount = 0;
+  lastSynthesisActivityAt = Date.now();
 
   if (!isWaitingForStart) return;
   isWaitingForStart = false;
@@ -791,9 +827,10 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   synthesis.speak(utterance);
 
   // 読み上げを頼んでも音が出始めないことがあるため、一定時間で見張ってやり直します。
-  const startLimitMs = selectedVoice && selectedVoice.localService === false
+  // エンジンを起こすための無音の発話の後ろに並んだときは、その分だけ長めに待ちます。
+  const startLimitMs = (selectedVoice && selectedVoice.localService === false
     ? REMOTE_START_TIMEOUT_MS
-    : START_TIMEOUT_MS;
+    : START_TIMEOUT_MS) + (isPrimingSynthesis ? PRIME_WAIT_EXTRA_MS : 0);
   window.clearTimeout(startTimerId);
   startTimerId = window.setTimeout(() => {
     startTimerId = 0;
@@ -936,10 +973,16 @@ function startSpeaking() {
     return;
   }
 
-  // 前の読み上げがブラウザ内部で一時停止のまま残っていると、次のspeakが始まりません。
-  // cancelの前にresumeして、その状態を確実に解除します。
-  synthesis.resume();
-  synthesis.cancel();
+  // 音声エンジンを起こすための無音の発話だけが残っているときは、打ち消さずに後ろへ並べます。
+  // cancelするとエンジンの準備がやり直しになり、かえって開始が遅れるためです。
+  // それ以外の読み上げが残っているときは、resumeしてからcancelして確実に解除します。
+  // cancel直後のspeakは無視されたり始まりが遅れたりするため、そのときだけ少し間をあけます。
+  const needsCancel = isReading || isPaused || (!isPrimingSynthesis && (synthesis.speaking || synthesis.pending || synthesis.paused));
+  window.clearTimeout(restartTimerId);
+  if (needsCancel) {
+    synthesis.resume();
+    synthesis.cancel();
+  }
   sessionId += 1;
   const realChunks = splitText(text);
   realChunkCount = realChunks.length;
@@ -960,7 +1003,18 @@ function startSpeaking() {
   updateCurrentChips();
   updateControls("speaking");
   startPlaybackTimers();
-  speakCurrentChunk(sessionId);
+  if (!needsCancel) {
+    speakCurrentChunk(sessionId);
+    return;
+  }
+
+  const activeSessionId = sessionId;
+  isRecovering = true;
+  restartTimerId = window.setTimeout(() => {
+    isRecovering = false;
+    if (!isReading || isPaused || activeSessionId !== sessionId) return;
+    speakCurrentChunk(activeSessionId);
+  }, RESTART_DELAY_MS);
 }
 
 // speechSynthesisのpause/resumeはブラウザによって再開に失敗することがあるため使用せず、
@@ -2133,13 +2187,16 @@ function unlockAudioPlayback() {
 document.addEventListener("pointerdown", unlockAudioPlayback, { once: true });
 document.addEventListener("keydown", unlockAudioPlayback, { once: true });
 
-// ブラウザの音声エンジンも、同じく最初の操作のときに起こしておきます。
-// 読み上げボタンの操作では行いません（直後のcancelが本来の発話を打ち消すため）。
+// ブラウザの音声エンジンも、画面を触ったときに起こしておきます。
+// 読み上げボタンを押し込んだ時点（離す前）でも起こし、読み上げ開始までの待ち時間を減らします。
 ["pointerdown", "keydown"].forEach((eventName) => {
-  document.addEventListener(eventName, (event) => {
-    if (event.target instanceof Element && event.target.closest("#speak-button, #clipboard-button")) return;
-    primeSpeechSynthesis();
-  }, { capture: true, passive: true });
+  document.addEventListener(eventName, primeSpeechSynthesis, { capture: true, passive: true });
+});
+
+// 他のアプリで文章をコピーしてから戻ってきたときも、ボタンを押す前に起こしておきます。
+window.addEventListener("focus", primeSpeechSynthesis);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) primeSpeechSynthesis();
 });
 
 function playAudioPlayer() {
