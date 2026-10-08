@@ -201,6 +201,15 @@ function removeBackslashes(text) {
 }
 
 /**
+ * Claudeなどの回答をコピーすると、画像があった場所に「[image]」という文字が残り、
+ * そのまま「イメージ」と読み上げられるため、読み上げる文章から取り除きます。
+ * 例：[image] → （読み上げない）
+ */
+function removeImagePlaceholders(text) {
+  return text.replace(/[\[［][ \t\u3000]*(?:image|画像)[ \t\u3000]*[\]］]/gi, "");
+}
+
+/**
  * Markdownの表の縦線（|）は「パイプ」と何度も読み上げられて聞き取りにくいため、
  * 読み上げる文章から取り除きます。区切り行（|---|---|）は行ごと削除し、
  * 行頭・行末の縦線は消して、セルの間の縦線は読点に置き換えて間を取ります。
@@ -259,7 +268,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(removeBackquotes(removeBackslashes(removeTablePipes(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n"))))))).trim();
+  const normalized = replaceUnsafeSymbols(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n")))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
