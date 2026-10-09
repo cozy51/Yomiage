@@ -89,6 +89,8 @@ const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 let voices = [];
 let chunks = [];
 let realChunkCount = 0;
+// 読み上げ中に、ポップアップがいちばん高くなったときの高さです。
+let currentCardMinHeight = 0;
 let currentChunkIndex = 0;
 let currentChunkOffset = 0;
 let isReading = false;
@@ -321,10 +323,31 @@ function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
 }
 
 /**
+ * ページが切り替わって文章が短くなっても、ポップアップが縮まないようにします。
+ * ポップアップは画面の下に固定しているため、縮むと上の端が下がります。
+ * ちょうどそのときに一時停止しようとタップすると、枠の外を押したことになり、
+ * 読み上げが止まってしまうためです。
+ */
+function keepCurrentCardHeight() {
+  if (currentSection.hidden) return;
+  const height = currentSection.offsetHeight;
+  if (height <= currentCardMinHeight) return;
+  currentCardMinHeight = height;
+  currentSection.style.minHeight = `${height}px`;
+}
+
+// 新しく読み上げを始めるときや画面の幅が変わったときは、高さをその文章に合わせ直します。
+function resetCurrentCardHeight() {
+  currentCardMinHeight = 0;
+  currentSection.style.minHeight = "";
+}
+
+/**
  * 現在の文章を表示し、指定範囲を安全にハイライトします。
  * highlightLengthが0の場合は文章全体を通常表示します。
  */
 function renderCurrentText(text, highlightStart = 0, highlightLength = 0) {
+  keepCurrentCardHeight();
   currentText.replaceChildren();
 
   if (highlightLength <= 0) {
@@ -348,15 +371,26 @@ function renderCurrentText(text, highlightStart = 0, highlightLength = 0) {
  * 読み終えたチャンクは塗りつぶし、現在のチャンクは強調し、これからのチャンクは薄く表示します。
  */
 function renderProgressDots(current, total) {
-  progressText.setAttribute("role", "img");
+  progressText.setAttribute("role", "group");
   progressText.setAttribute("aria-label", `${current} / ${total}`);
 
+  // ドットを押すと、そのページへ移動できます。
+  const canJump = canJumpChunks();
   const fragment = document.createDocumentFragment();
   for (let index = 0; index < total; index += 1) {
-    const dot = document.createElement("span");
+    const dot = document.createElement("button");
+    dot.type = "button";
     dot.className = "progress-dot";
+    dot.dataset.index = String(index);
+    dot.tabIndex = -1;
+    dot.disabled = !canJump;
+    dot.title = `${index + 1}ページ目へ`;
+    dot.setAttribute("aria-label", `${index + 1}ページ目へ`);
     if (index < current - 1) dot.classList.add("is-done");
-    else if (index === current - 1) dot.classList.add("is-current");
+    else if (index === current - 1) {
+      dot.classList.add("is-current");
+      dot.setAttribute("aria-current", "step");
+    }
     fragment.append(dot);
   }
   progressText.replaceChildren(fragment);
@@ -388,6 +422,9 @@ function updatePageButtons() {
   const index = getDisplayChunkIndex();
   prevButton.disabled = !enabled || index <= 0;
   nextButton.disabled = !enabled || index >= realChunkCount - 1;
+  progressText.querySelectorAll(".progress-dot").forEach((dot) => {
+    dot.disabled = !enabled;
+  });
 }
 
 /**
@@ -396,9 +433,14 @@ function updatePageButtons() {
  * 読み上げ直しは続けて押されても追いつけるよう少し待ってから行います。
  */
 function jumpChunks(step) {
+  jumpToChunk(getDisplayChunkIndex() + step);
+}
+
+// 指定したページ（0から数えます）へ移動します。ドットを押したときにも使います。
+function jumpToChunk(index) {
   if (!canJumpChunks()) return;
 
-  const target = Math.min(Math.max(getDisplayChunkIndex() + step, 0), realChunkCount - 1);
+  const target = Math.min(Math.max(index, 0), realChunkCount - 1);
   if (target === getDisplayChunkIndex()) return;
 
   pendingChunkIndex = target;
@@ -1015,6 +1057,7 @@ function startSpeaking() {
   sessionId += 1;
   const realChunks = splitText(text);
   realChunkCount = realChunks.length;
+  resetCurrentCardHeight();
   // 最後に終了アナウンスを疑似チャンクとして追加し、読み上げ完了後にひと言添えてから閉じます。
   chunks = [...realChunks, buildFinishAnnouncement()];
   updateCurrentCount(text);
@@ -2259,6 +2302,7 @@ async function startAiSpeaking(text) {
   const activeSessionId = sessionId;
 
   realChunkCount = realChunks.length;
+  resetCurrentCardHeight();
   currentChunkIndex = 0;
   currentChunkOffset = 0;
   isReading = true;
@@ -2696,6 +2740,13 @@ currentSection.addEventListener("keydown", (event) => {
 prevButton.addEventListener("click", () => jumpChunks(-1));
 nextButton.addEventListener("click", () => jumpChunks(1));
 
+// 進み具合のドットを押すと、そのページへ移動します。
+progressText.addEventListener("click", (event) => {
+  const dot = event.target instanceof Element ? event.target.closest(".progress-dot") : null;
+  if (!dot) return;
+  jumpToChunk(Number(dot.dataset.index));
+});
+
 /**
  * キーボードの左右キーでもページ送りができるようにします。
  * 入力欄・速度の調整・パスワード入力など、キーに別の役割がある場所では邪魔をしません。
@@ -2715,6 +2766,15 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || !isReading || isPaused || isAiPlayback) return;
   releasePendingPause();
+});
+
+// 画面の幅が変わると文章の折り返しも変わるため、ポップアップの高さを合わせ直します。
+// スマートフォンではスクロールでアドレスバーが出入りするだけでも高さが変わるため、幅の変化だけを見ます。
+let lastViewportWidth = window.innerWidth;
+window.addEventListener("resize", () => {
+  if (window.innerWidth === lastViewportWidth) return;
+  lastViewportWidth = window.innerWidth;
+  resetCurrentCardHeight();
 });
 
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
