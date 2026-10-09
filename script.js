@@ -89,6 +89,8 @@ const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 let voices = [];
 let chunks = [];
 let realChunkCount = 0;
+// 読み上げ中に、ポップアップがいちばん高くなったときの高さです。
+let currentCardMinHeight = 0;
 let currentChunkIndex = 0;
 let currentChunkOffset = 0;
 let isReading = false;
@@ -321,10 +323,31 @@ function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
 }
 
 /**
+ * ページが切り替わって文章が短くなっても、ポップアップが縮まないようにします。
+ * ポップアップは画面の下に固定しているため、縮むと上の端が下がります。
+ * ちょうどそのときに一時停止しようとタップすると、枠の外を押したことになり、
+ * 読み上げが止まってしまうためです。
+ */
+function keepCurrentCardHeight() {
+  if (currentSection.hidden) return;
+  const height = currentSection.offsetHeight;
+  if (height <= currentCardMinHeight) return;
+  currentCardMinHeight = height;
+  currentSection.style.minHeight = `${height}px`;
+}
+
+// 新しく読み上げを始めるときや画面の幅が変わったときは、高さをその文章に合わせ直します。
+function resetCurrentCardHeight() {
+  currentCardMinHeight = 0;
+  currentSection.style.minHeight = "";
+}
+
+/**
  * 現在の文章を表示し、指定範囲を安全にハイライトします。
  * highlightLengthが0の場合は文章全体を通常表示します。
  */
 function renderCurrentText(text, highlightStart = 0, highlightLength = 0) {
+  keepCurrentCardHeight();
   currentText.replaceChildren();
 
   if (highlightLength <= 0) {
@@ -1015,6 +1038,7 @@ function startSpeaking() {
   sessionId += 1;
   const realChunks = splitText(text);
   realChunkCount = realChunks.length;
+  resetCurrentCardHeight();
   // 最後に終了アナウンスを疑似チャンクとして追加し、読み上げ完了後にひと言添えてから閉じます。
   chunks = [...realChunks, buildFinishAnnouncement()];
   updateCurrentCount(text);
@@ -2259,6 +2283,7 @@ async function startAiSpeaking(text) {
   const activeSessionId = sessionId;
 
   realChunkCount = realChunks.length;
+  resetCurrentCardHeight();
   currentChunkIndex = 0;
   currentChunkOffset = 0;
   isReading = true;
@@ -2715,6 +2740,15 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || !isReading || isPaused || isAiPlayback) return;
   releasePendingPause();
+});
+
+// 画面の幅が変わると文章の折り返しも変わるため、ポップアップの高さを合わせ直します。
+// スマートフォンではスクロールでアドレスバーが出入りするだけでも高さが変わるため、幅の変化だけを見ます。
+let lastViewportWidth = window.innerWidth;
+window.addEventListener("resize", () => {
+  if (window.innerWidth === lastViewportWidth) return;
+  lastViewportWidth = window.innerWidth;
+  resetCurrentCardHeight();
 });
 
 // ページを離れるときにブラウザへ残っている読み上げを確実に解除します。
