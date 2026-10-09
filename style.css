@@ -815,6 +815,15 @@ input[type="range"] {
   color: #fff;
 }
 
+/* 読み上げる文章の文字数です。入力テキストの文字数と同じく右端に表示します。 */
+.current-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: .86rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .current-mode:empty {
   display: none;
 }
@@ -910,10 +919,30 @@ input[type="range"] {
   margin: 9px 0 0;
 }
 
-.page-nav .progress-text {
+/* ドットの下に「現在のページ / 全体のページ数」を表示します。 */
+.page-indicator {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.page-nav .progress-text {
   justify-content: center;
   margin: 0;
+}
+
+.page-count {
+  color: var(--muted);
+  font-size: .86rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.current-card.is-paused .page-count,
+.current-card.is-paused .current-count {
+  color: #92400e;
 }
 
 .page-button {
