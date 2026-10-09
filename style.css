@@ -931,6 +931,7 @@ input[type="range"] {
 
 .page-nav .progress-text {
   justify-content: center;
+  gap: 0;
   margin: 0;
 }
 
@@ -981,8 +982,26 @@ input[type="range"] {
   background: #fef3c7;
 }
 
-/* iOSのページコントロールのように、チャンクの進み具合をドットで示します。 */
+/* iOSのページコントロールのように、チャンクの進み具合をドットで示します。
+   押すとそのページへ移動できるよう、見た目の丸より広い範囲を押せるようにします。 */
 .progress-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.progress-dot:disabled {
+  cursor: default;
+}
+
+.progress-dot::before {
+  content: "";
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -990,20 +1009,24 @@ input[type="range"] {
   transition: background-color .15s, transform .15s;
 }
 
-.progress-dot.is-done {
+.progress-dot:hover:not(:disabled)::before {
+  transform: scale(1.4);
+}
+
+.progress-dot.is-done::before {
   background: #93c5fd;
 }
 
-.progress-dot.is-current {
+.progress-dot.is-current::before {
   background: var(--primary);
   transform: scale(1.4);
 }
 
-.current-card.is-paused .progress-dot.is-done {
+.current-card.is-paused .progress-dot.is-done::before {
   background: #fde68a;
 }
 
-.current-card.is-paused .progress-dot.is-current {
+.current-card.is-paused .progress-dot.is-current::before {
   background: #f59e0b;
 }
 

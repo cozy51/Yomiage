@@ -371,15 +371,26 @@ function renderCurrentText(text, highlightStart = 0, highlightLength = 0) {
  * 読み終えたチャンクは塗りつぶし、現在のチャンクは強調し、これからのチャンクは薄く表示します。
  */
 function renderProgressDots(current, total) {
-  progressText.setAttribute("role", "img");
+  progressText.setAttribute("role", "group");
   progressText.setAttribute("aria-label", `${current} / ${total}`);
 
+  // ドットを押すと、そのページへ移動できます。
+  const canJump = canJumpChunks();
   const fragment = document.createDocumentFragment();
   for (let index = 0; index < total; index += 1) {
-    const dot = document.createElement("span");
+    const dot = document.createElement("button");
+    dot.type = "button";
     dot.className = "progress-dot";
+    dot.dataset.index = String(index);
+    dot.tabIndex = -1;
+    dot.disabled = !canJump;
+    dot.title = `${index + 1}ページ目へ`;
+    dot.setAttribute("aria-label", `${index + 1}ページ目へ`);
     if (index < current - 1) dot.classList.add("is-done");
-    else if (index === current - 1) dot.classList.add("is-current");
+    else if (index === current - 1) {
+      dot.classList.add("is-current");
+      dot.setAttribute("aria-current", "step");
+    }
     fragment.append(dot);
   }
   progressText.replaceChildren(fragment);
@@ -411,6 +422,9 @@ function updatePageButtons() {
   const index = getDisplayChunkIndex();
   prevButton.disabled = !enabled || index <= 0;
   nextButton.disabled = !enabled || index >= realChunkCount - 1;
+  progressText.querySelectorAll(".progress-dot").forEach((dot) => {
+    dot.disabled = !enabled;
+  });
 }
 
 /**
@@ -419,9 +433,14 @@ function updatePageButtons() {
  * 読み上げ直しは続けて押されても追いつけるよう少し待ってから行います。
  */
 function jumpChunks(step) {
+  jumpToChunk(getDisplayChunkIndex() + step);
+}
+
+// 指定したページ（0から数えます）へ移動します。ドットを押したときにも使います。
+function jumpToChunk(index) {
   if (!canJumpChunks()) return;
 
-  const target = Math.min(Math.max(getDisplayChunkIndex() + step, 0), realChunkCount - 1);
+  const target = Math.min(Math.max(index, 0), realChunkCount - 1);
   if (target === getDisplayChunkIndex()) return;
 
   pendingChunkIndex = target;
@@ -2720,6 +2739,13 @@ currentSection.addEventListener("keydown", (event) => {
 // 長い文章を読み飛ばせるよう、ページ単位で前後へ移動できるようにします。
 prevButton.addEventListener("click", () => jumpChunks(-1));
 nextButton.addEventListener("click", () => jumpChunks(1));
+
+// 進み具合のドットを押すと、そのページへ移動します。
+progressText.addEventListener("click", (event) => {
+  const dot = event.target instanceof Element ? event.target.closest(".progress-dot") : null;
+  if (!dot) return;
+  jumpToChunk(Number(dot.dataset.index));
+});
 
 /**
  * キーボードの左右キーでもページ送りができるようにします。
