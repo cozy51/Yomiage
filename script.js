@@ -24,6 +24,8 @@ const currentSource = document.getElementById("current-source");
 const currentAi = document.getElementById("current-ai");
 const currentText = document.getElementById("current-text");
 const progressText = document.getElementById("progress-text");
+const pageCount = document.getElementById("page-count");
+const currentCount = document.getElementById("current-count");
 const ocrProgress = document.getElementById("ocr-progress");
 const ocrProgressFill = document.getElementById("ocr-progress-fill");
 const ocrProgressLabel = document.getElementById("ocr-progress-label");
@@ -358,6 +360,12 @@ function renderProgressDots(current, total) {
     fragment.append(dot);
   }
   progressText.replaceChildren(fragment);
+  pageCount.textContent = `${current} / ${total}`;
+}
+
+// 読み上げる文章の文字数を、入力テキストと同じ形で見出しの右端に表示します。
+function updateCurrentCount(text) {
+  currentCount.textContent = `${Array.from(text).length.toLocaleString("ja-JP")}文字`;
 }
 
 /**
@@ -1009,6 +1017,7 @@ function startSpeaking() {
   realChunkCount = realChunks.length;
   // 最後に終了アナウンスを疑似チャンクとして追加し、読み上げ完了後にひと言添えてから閉じます。
   chunks = [...realChunks, buildFinishAnnouncement()];
+  updateCurrentCount(text);
   currentChunkIndex = 0;
   currentChunkOffset = 0;
   recoveryOffset = -1;
@@ -2261,6 +2270,7 @@ async function startAiSpeaking(text) {
   aiTtsModelsUsed = new Set();
   // AI音声では、最後のひと言（終了アナウンス）は読み上げません。
   chunks = realChunks;
+  updateCurrentCount(text);
 
   updateCurrentChips();
   updateControls("speaking");

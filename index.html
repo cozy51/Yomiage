@@ -221,13 +221,16 @@
     </section>
 
     <section id="current-section" class="card current-card" aria-labelledby="current-title" tabindex="0" hidden>
-      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span><span id="current-source" class="current-chip"></span><span id="current-ai" class="current-chip current-ai"></span></h2>
+      <h2 id="current-title"><span class="speaking-dot" aria-hidden="true"></span><span id="current-title-text">現在読み上げ中</span><span id="current-source" class="current-chip"></span><span id="current-ai" class="current-chip current-ai"></span><span id="current-count" class="current-count" aria-live="polite"></span></h2>
       <p id="current-text"></p>
       <div class="page-nav">
         <button id="prev-button" class="page-button" type="button" aria-label="前のページへ" title="前のページへ（←キー）" disabled>
           <span aria-hidden="true">◀</span>
         </button>
-        <div id="progress-text" class="progress-text"></div>
+        <div class="page-indicator">
+          <div id="progress-text" class="progress-text"></div>
+          <span id="page-count" class="page-count" aria-hidden="true"></span>
+        </div>
         <button id="next-button" class="page-button" type="button" aria-label="次のページへ" title="次のページへ（→キー）" disabled>
           <span aria-hidden="true">▶</span>
         </button>
