@@ -1172,6 +1172,40 @@ function removeUrlsAndPercentEncoding(text) {
     .replace(/(?:%[0-9A-Fa-f]{2})+/g, "");
 }
 
+// 文字参照の名前と、置き換える文字の対応です。よく使われるものだけを扱います。
+const NAMED_CHARACTER_REFERENCES = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+};
+
+/**
+ * 貼り付けた文章に残ったHTMLの文字参照（&#x20; &#32; &nbsp; など）を元の文字に戻します。
+ * ChatGPTなどからコピーした文章には空白が「&#x20;」のまま残ることがあり、
+ * そのままでは「アンド シャープ エックス 20」のように読み上げられてしまいます。
+ * 全角の「＆」「＃」「；」で書かれた場合も同じように扱います。
+ * 制御文字や存在しない文字を指す参照は空白に置き換えます。
+ */
+function decodeCharacterReferences(text) {
+  return text
+    .replace(/[&＆][#＃]([xXｘＸ])?([0-9A-Fa-f０-９Ａ-Ｆａ-ｆ]{1,6})[;；]/g, (match, hex, digits) => {
+      const asciiDigits = digits.replace(/[０-９Ａ-Ｆａ-ｆ]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0xFEE0));
+      if (!hex && !/^[0-9]+$/.test(asciiDigits)) return match;
+      const codePoint = parseInt(asciiDigits, hex ? 16 : 10);
+      if (codePoint === 0x0A) return "\n";
+      if (codePoint < 0x20 || (codePoint >= 0x7F && codePoint < 0xA0) || codePoint > 0x10FFFF
+        || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) return " ";
+      return String.fromCodePoint(codePoint);
+    })
+    .replace(/[&＆]([A-Za-z]+)[;；]/g, (match, name) => NAMED_CHARACTER_REFERENCES[name.toLowerCase()] ?? match);
+}
+
 /**
  * 貼り付けた文章に含まれるMarkdown記法のノイズを取り除きます。
  * 見出し（#）や箇条書き（*）は改行に変換し、太字（**）の記号は削除します。
@@ -1268,11 +1302,11 @@ function joinWrappedLines(text, { joinAcrossEmptyLines = true } = {}) {
 
 /**
  * 貼り付ける文章を整形します。
- * 絵文字・URL・%エンコード文字列・Markdown記法を削除し、
+ * HTMLの文字参照を元の文字に戻し、絵文字・URL・%エンコード文字列・Markdown記法を削除し、
  * 空白やタブしか含まない行を取り除きます。
  */
 function sanitizePastedText(text) {
-  return stripMarkdownNoise(removeUrlsAndPercentEncoding(removeEmojis(text)))
+  return stripMarkdownNoise(removeUrlsAndPercentEncoding(removeEmojis(decodeCharacterReferences(text))))
     .replace(/\r\n?|\u2028|\u2029/g, "\n")
     .split("\n")
     .map((line) => line.trim())

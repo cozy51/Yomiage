@@ -135,6 +135,12 @@ h1 {
   color: #fff;
 }
 
+/* 文章をAIで作り変える方法（要約・詳細要約・翻訳）を選んだときは薄い黄色にして、無料OCR・高精度と見分けやすくします。 */
+.quick-option input:is([value="summarize"], [value="summarize-detail"], [value="translate"]):checked + .quick-option-text {
+  background: #fde68a;
+  color: #78350f;
+}
+
 .quick-option input:focus-visible + .quick-option-text {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
