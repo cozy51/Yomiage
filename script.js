@@ -205,6 +205,16 @@ function removeBackslashes(text) {
 }
 
 /**
+ * アンダースコア（_）は「アンダーライン」などと読み上げられて聞き取りにくいため、
+ * 読み上げる文章では空白に置き換えて、区切りとして間を取るだけにします。
+ * ファイル名や資料名の区切りによく使われます。入力欄の文章はそのまま残します。
+ * 例：1A413_CanSemi 中国_搬入計画 → 1A413 CanSemi 中国 搬入計画
+ */
+function replaceUnderscores(text) {
+  return text.replace(/[_＿]/g, " ");
+}
+
+/**
  * Claudeなどの回答をコピーすると、画像があった場所に「[image]」という文字が残り、
  * そのまま「イメージ」と読み上げられるため、読み上げる文章から取り除きます。
  * 例：[image] → （読み上げない）
@@ -284,7 +294,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n")))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n"))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
