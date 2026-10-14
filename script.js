@@ -205,6 +205,15 @@ function removeBackslashes(text) {
 }
 
 /**
+ * 見出しの囲みに使われる「≪」「≫」は「非常に小さい」「非常に大きい」と
+ * 読み上げられてしまうため、読み上げる文章から取り除きます。
+ * 例：≪お問合せ先≫ → お問合せ先
+ */
+function removeDoubleAngleMarks(text) {
+  return text.replace(/[≪≫]/g, "");
+}
+
+/**
  * アンダースコア（_）は「アンダーライン」などと読み上げられて聞き取りにくいため、
  * 読み上げる文章では空白に置き換えて、区切りとして間を取るだけにします。
  * ファイル名や資料名の区切りによく使われます。入力欄の文章はそのまま残します。
@@ -294,7 +303,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n"))))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n")))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
