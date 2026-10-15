@@ -205,6 +205,15 @@ function removeBackslashes(text) {
 }
 
 /**
+ * 表などからコピーした文章に残る改行のタグ（<br>）は「ビーアール」と読み上げられてしまうため、
+ * 改行に置き換えて、区切りとして間を取るだけにします。全角の「＜br＞」や「<br/>」も対象です。
+ * 例：回答・個別対応<br>・過去の経緯 → 回答・個別対応（改行）・過去の経緯
+ */
+function replaceBreakTags(text) {
+  return text.replace(/[<＜]\s*[bBｂＢ]\s*[rRｒＲ]\s*[/／]?\s*[>＞]/g, "\n");
+}
+
+/**
  * 見出しの囲みに使われる「≪」「≫」は「非常に小さい」「非常に大きい」と
  * 読み上げられてしまうため、読み上げる文章から取り除きます。
  * 例：≪お問合せ先≫ → お問合せ先
@@ -303,7 +312,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(text.replace(/\r\n?/g, "\n")))))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
