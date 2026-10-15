@@ -42,6 +42,8 @@ const MAX_QUOTA_WAIT_MS = 15000;
 const TRANSIENT_RETRY_DELAYS_MS = [1000, 3000];
 // 残り時間がこれより短いときは、新しく問い合わせても間に合わないためやり直しません。
 const MIN_ATTEMPT_MS = 8000;
+// 文章が空で返ってきたときに、自動でやり直す回数です（残り時間があるときだけ行います）。
+const EMPTY_RETRY_COUNT = 2;
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL_PATTERN = /^[A-Za-z0-9.\-]+$/;
 // 音声や画像を作るためのモデルは、文章の処理には使えないため候補から除きます。
@@ -307,6 +309,25 @@ function readModelVersion(result) {
 async function generateText(apiKey, parts, options = {}) {
   const timeoutMs = options.timeoutMs || GEMINI_TIMEOUT_MS;
   const startedAt = Date.now();
+  let models = getTextModels(options.priority);
+  let generated = await generateTextOnce(apiKey, parts, options, models, timeoutMs);
+
+  // 文章が空で返ってきたときは、時間が残っていれば自動でやり直します。
+  // 同じモデルが続けて空を返すことがあるため、空を返したモデルを後ろへ回し、代わりのモデルを先に試します。
+  for (let retry = 0; !generated.text && retry < EMPTY_RETRY_COUNT; retry += 1) {
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs < MIN_ATTEMPT_MS) break;
+    models = [...models.filter((name) => name !== generated.model), generated.model];
+    console.error("Geminiが文章を返さなかったため、やり直します。", generated.model, "→", models.join(", "));
+    generated = await generateTextOnce(apiKey, parts, options, models, remainingMs);
+  }
+
+  return generated;
+}
+
+// generateText の1回分です。models の順にモデルを試し、返ってきた文章を取り出します（空のこともあります）。
+async function generateTextOnce(apiKey, parts, options, models, timeoutMs) {
+  const startedAt = Date.now();
   const instruction = options.systemInstruction ? { system_instruction: { parts: [{ text: options.systemInstruction }] } } : {};
   const instructionParts = options.systemInstruction ? [{ text: options.systemInstruction }] : [];
   const buildPayload = (style) => {
@@ -334,7 +355,7 @@ async function generateText(apiKey, parts, options = {}) {
     };
   };
 
-  let last = await requestGeminiWithRetry(apiKey, getTextModels(options.priority),
+  let last = await requestGeminiWithRetry(apiKey, models,
     (model) => buildPayload(getTextPayloadStyles(model)[0]), timeoutMs);
   let { response: geminiResponse, model } = last;
   const styles = getTextPayloadStyles(model);
