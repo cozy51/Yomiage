@@ -2781,6 +2781,8 @@ document.addEventListener("pointerdown", (event) => {
   if (currentSection.hidden || currentSection.contains(event.target)) return;
   // パスワードの入力中は、読み上げの続きを止めないようにします。
   if (passwordDialog.open && passwordDialog.contains(event.target)) return;
+  // 処理方法の切り替えでは、読み上げを止めません。新しい方法は、次に読み上げボタンを押したときから使います。
+  if (event.target instanceof Element && event.target.closest(".quick-mode, .process-mode")) return;
   stopSpeaking();
 });
 
