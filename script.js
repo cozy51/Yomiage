@@ -214,6 +214,20 @@ function replaceBreakTags(text) {
 }
 
 /**
+ * AIの回答に表示用のタグ（<box gap={3}>、<AsyncImage query="…"/>、</row> など）が
+ * 文字のまま混ざることがあり、そのままでは記号や属性まで読み上げられてしまうため、
+ * タグごと取り除きます。タグ名が英字で始まり、属性が「名前」「名前=値」の形の
+ * ものだけを対象にして、「<注意>」や「a < b」のような普通の文章は残します。
+ * 例：<box flex="1" gap={1}>手を合わせる</box> → 手を合わせる
+ */
+function removeHtmlTags(text) {
+  return text.replace(
+    /<\/?[A-Za-z][\w.:-]*(?:\s+[A-Za-z_:@][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|\{[^{}]*\}|[^\s"'<>{}=`]+))?)*\s*\/?>/g,
+    " "
+  );
+}
+
+/**
  * 見出しの囲みに使われる「≪」「≫」は「非常に小さい」「非常に大きい」と
  * 読み上げられてしまうため、読み上げる文章から取り除きます。
  * 例：≪お問合せ先≫ → お問合せ先
@@ -312,7 +326,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
