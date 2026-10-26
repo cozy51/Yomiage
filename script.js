@@ -228,6 +228,21 @@ function removeHtmlTags(text) {
 }
 
 /**
+ * 引用の行頭に付く「>」は、コピーした文章によっては記号だけの行が何行も続き、
+ * 表示や読み上げが「＞」だらけになるため、読み上げる文章から取り除きます。
+ * 行頭の「>」「＞」（「> >」のような重なりも含む）を消し、記号だけの行は行ごと削除します。
+ * 行の途中の「＞」（例：＜再提出が必要な項目＞）はそのまま残します。
+ * 例：> ただし、… → ただし、…
+ */
+function removeQuoteMarkers(text) {
+  return text
+    .split("\n")
+    .filter((line) => !/^[ \t\u3000]*[>＞](?:[ \t\u3000]*[>＞])*[ \t\u3000]*$/.test(line))
+    .map((line) => line.replace(/^[ \t\u3000]*[>＞](?:[ \t\u3000]*[>＞])*[ \t\u3000]*/, ""))
+    .join("\n");
+}
+
+/**
  * 見出しの囲みに使われる「≪」「≫」は「非常に小さい」「非常に大きい」と
  * 読み上げられてしまうため、読み上げる文章から取り除きます。
  * 例：≪お問合せ先≫ → お問合せ先
@@ -326,7 +341,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
