@@ -80,8 +80,6 @@ const MAX_START_RETRIES = 2;
 const PRIME_IDLE_MS = 20000;
 // 起こすための無音の発話が終わったと知らせてこない場合に、待つのをやめるまでの時間です。
 const PRIME_TIMEOUT_MS = 3000;
-// 無音の発話の後ろに本来の発話を並べたとき、開始の見張りを延ばす時間です。
-const PRIME_WAIT_EXTRA_MS = 1000;
 
 // pause/resumeによる時間切れ対策はパソコン向けブラウザでのみ有効なため、端末を判定します。
 const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -122,6 +120,8 @@ let isWaitingForStart = false;
 // 音声エンジンを起こすための無音の発話が、まだ再生待ち・再生中かどうかです。
 let isPrimingSynthesis = false;
 let primeTimerId = 0;
+// 無音の発話が終わるのを待ってから始める処理です。待っていないときはnullです。
+let afterPrimingCallback = null;
 // 最後に音声エンジンを使った（または起こした）時刻です。0は一度も使っていないことを表します。
 let lastSynthesisActivityAt = 0;
 
@@ -781,6 +781,9 @@ function primeSpeechSynthesis() {
       primeTimerId = 0;
       isPrimingSynthesis = false;
       lastSynthesisActivityAt = Date.now();
+      const callback = afterPrimingCallback;
+      afterPrimingCallback = null;
+      if (callback) callback();
     };
     warmUp.onend = finishPriming;
     warmUp.onerror = finishPriming;
@@ -976,10 +979,9 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   synthesis.speak(utterance);
 
   // 読み上げを頼んでも音が出始めないことがあるため、一定時間で見張ってやり直します。
-  // エンジンを起こすための無音の発話の後ろに並んだときは、その分だけ長めに待ちます。
-  const startLimitMs = (selectedVoice && selectedVoice.localService === false
+  const startLimitMs = selectedVoice && selectedVoice.localService === false
     ? REMOTE_START_TIMEOUT_MS
-    : START_TIMEOUT_MS) + (isPrimingSynthesis ? PRIME_WAIT_EXTRA_MS : 0);
+    : START_TIMEOUT_MS;
   window.clearTimeout(startTimerId);
   startTimerId = window.setTimeout(() => {
     startTimerId = 0;
@@ -1122,8 +1124,10 @@ function startSpeaking() {
     return;
   }
 
-  // 音声エンジンを起こすための無音の発話だけが残っているときは、打ち消さずに後ろへ並べます。
+  // 音声エンジンを起こすための無音の発話だけが残っているときは、打ち消さずに終わるのを待ちます。
   // cancelするとエンジンの準備がやり直しになり、かえって開始が遅れるためです。
+  // 後ろへ並べるだけだと、Edgeなどでは音は出ても読み上げ位置の知らせが届かず、
+  // 強調表示が進まないまま、始まっていないと判断して最初から読み直してしまいます。
   // それ以外の読み上げが残っているときは、resumeしてからcancelして確実に解除します。
   // cancel直後のspeakは無視されたり始まりが遅れたりするため、そのときだけ少し間をあけます。
   const needsCancel = isReading || isPaused || (!isPrimingSynthesis && (synthesis.speaking || synthesis.pending || synthesis.paused));
@@ -1154,12 +1158,19 @@ function startSpeaking() {
   updateCurrentChips();
   updateControls("speaking");
   startPlaybackTimers();
+  const activeSessionId = sessionId;
   if (!needsCancel) {
-    speakCurrentChunk(sessionId);
+    if (isPrimingSynthesis) {
+      afterPrimingCallback = () => {
+        if (isPaused) return;
+        speakCurrentChunk(activeSessionId);
+      };
+      return;
+    }
+    speakCurrentChunk(activeSessionId);
     return;
   }
 
-  const activeSessionId = sessionId;
   isRecovering = true;
   restartTimerId = window.setTimeout(() => {
     isRecovering = false;
