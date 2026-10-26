@@ -721,9 +721,18 @@ function startPlaybackTimers() {
       synthesis.resume();
       return;
     }
+    // 時間切れが起きるのはChromeのGoogle音声（オンライン）だけです。
+    // Edgeの「七海」などは、pauseとresumeを続けて呼ぶと文の頭から読み直してしまうため触りません。
+    if (!needsKeepAlivePause()) return;
     synthesis.pause();
     synthesis.resume();
   }, KEEP_ALIVE_INTERVAL);
+}
+
+// 長い発話が途中で止まる不具合は、ChromeのGoogle音声（オンライン）で起きます。
+function needsKeepAlivePause() {
+  const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
+  return Boolean(selectedVoice) && !selectedVoice.localService && /google/i.test(selectedVoice.name);
 }
 
 function stopPlaybackTimers() {
