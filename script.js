@@ -1263,11 +1263,15 @@ function removeEmojis(text) {
 
 /**
  * 貼り付けた文章からURLと%エンコードされた文字列を除去します。
+ * Markdownのリンク（[表示名](URL)）は、表示名だけを残します。
  * URLを囲む丸括弧（半角・全角）が残らないよう、括弧ごと取り除きます。
+ * 日本語の文章は空白なしでURLの後ろに続くため、URLに使える半角の文字だけをURLとみなします。
+ * 例：詳細は[ドキュメントDB](https://example.com/a)から確認できます。 → 詳細はドキュメントDBから確認できます。
  */
 function removeUrlsAndPercentEncoding(text) {
   return text
-    .replace(/[(（]?https?:\/\/\S+[)）]?/gi, "")
+    .replace(/\[([^\]\n]+)\]\(https?:\/\/[^()\s]*\)/gi, "$1")
+    .replace(/[(（]?https?:\/\/[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+[)）]?/gi, "")
     .replace(/(?:%[0-9A-Fa-f]{2})+/g, "");
 }
 
