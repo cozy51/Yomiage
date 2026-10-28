@@ -271,6 +271,16 @@ function removeImagePlaceholders(text) {
 }
 
 /**
+ * コロンのすぐ後ろに角かっこが続くと（例：開催場所：[Teams 会議]）、
+ * 「：[」が顔文字と判断されて「顔文字しかめっ面」と読み上げられてしまうため、
+ * コロンと角かっこの間に空白を入れて、続けて並ばないようにします。
+ * 例：開催場所：[Teams 会議] → 開催場所： [Teams 会議]
+ */
+function separateColonFromBracket(text) {
+  return text.replace(/([:：])(?=[\[［])/g, "$1 ");
+}
+
+/**
  * Markdownの表の縦線（|）は「パイプ」と何度も読み上げられて聞き取りにくいため、
  * 読み上げる文章から取り除きます。区切り行（|---|---|）は行ごと削除し、
  * 行頭・行末の縦線は消して、セルの間の縦線は読点に置き換えて間を取ります。
@@ -341,7 +351,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
