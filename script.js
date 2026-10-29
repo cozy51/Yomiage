@@ -294,6 +294,19 @@ function removeExcelReferences(text) {
 }
 
 /**
+ * 「4/21」のような月日の表記は「21分の4」と分数として読み上げられてしまうため、
+ * 「4月21日」に置き換えて日付として読み上げられるようにします。
+ * 例：開催（4/21、5/19） → 開催（4月21日、5月19日）
+ * 「2026/4/21」や「1/2/3」のように斜線が続くものや、ありえない月日（13/40）は変えません。
+ */
+function replaceSlashDates(text) {
+  return text.replace(
+    /(?<![0-9０-９A-Za-z/／.:])(1[0-2]|0?[1-9])[/／](3[01]|[12][0-9]|0?[1-9])(?![0-9０-９A-Za-z/／])/g,
+    (match, month, day) => `${Number(month)}月${Number(day)}日`,
+  );
+}
+
+/**
  * コロンのすぐ後ろに角かっこが続くと（例：開催場所：[Teams 会議]）、
  * 「：[」が顔文字と判断されて「顔文字しかめっ面」と読み上げられてしまうため、
  * コロンと角かっこの間に空白を入れて、続けて並ばないようにします。
@@ -374,7 +387,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
