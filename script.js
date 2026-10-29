@@ -270,6 +270,29 @@ function removeImagePlaceholders(text) {
   return text.replace(/[\[［][ \t\u3000]*(?:image|画像)[ \t\u3000]*[\]］]/gi, "");
 }
 
+// Excelのセル番地（例：A1、$F$15）です。範囲（A1:F15）にも使います。
+const CELL_ADDRESS = String.raw`\$?[A-Z]{1,3}\$?[1-9]\d{0,6}`;
+const CELL_RANGE = String.raw`${CELL_ADDRESS}(?:[:：]${CELL_ADDRESS})?`;
+// シート名です。空白などを含む名前は「'Sheet 1'」のように引用符で囲まれます。
+const SHEET_NAME = String.raw`(?:'[^'\n]+'|[^\s()（）!！:：'"「」、。,]+)`;
+const EXCEL_REFERENCE_PATTERNS = [
+  // かっこで囲まれた参照（例：(FileOut!A1:F15)、（FileOut A1:F15）、(A1:F15)）
+  new RegExp(String.raw`[ \t\u3000]*[(（][ \t\u3000]*(?:${SHEET_NAME}(?:[!！]|[ \t\u3000]+))?${CELL_RANGE}[ \t\u3000]*[)）]`, "g"),
+  // シート名の付いた参照（例：FileOut!A1:F15、'Sheet 1'!B2）
+  new RegExp(String.raw`${SHEET_NAME}[!！]${CELL_RANGE}(?![A-Za-z0-9])`, "g"),
+  // シート名のない範囲（例：A1:F15）
+  new RegExp(String.raw`(?<![A-Za-z0-9])${CELL_ADDRESS}[:：]${CELL_ADDRESS}(?![A-Za-z0-9])`, "g"),
+];
+
+/**
+ * AIの回答に出典として付くExcelのセル範囲は、読み上げても意味がわからないため除外します。
+ * 例：(FileOut!A1:F15)、FileOut!A17:F19、A3:F19
+ * 「A4用紙」のような単独の番地は、ふつうの言葉と区別できないため残します。
+ */
+function removeExcelReferences(text) {
+  return EXCEL_REFERENCE_PATTERNS.reduce((result, pattern) => result.replace(pattern, ""), text);
+}
+
 /**
  * コロンのすぐ後ろに角かっこが続くと（例：開催場所：[Teams 会議]）、
  * 「：[」が顔文字と判断されて「顔文字しかめっ面」と読み上げられてしまうため、
@@ -351,7 +374,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
