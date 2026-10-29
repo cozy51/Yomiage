@@ -996,6 +996,14 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   startTimerId = window.setTimeout(() => {
     startTimerId = 0;
     if (isStaleUtterance() || isPaused || isRecovering || hasUtteranceStarted) return;
+    // しばらく使っていなかった後のEdgeなどでは、音は出ているのに開始や読み上げ位置の知らせが届かないことがあります。
+    // ほかに並んでいる発話がなく、エンジンが読み上げ中と答えているときは、この発話が鳴っているとみなして待ちます。
+    // ここで読み直すと、聞こえていた冒頭を最初から読み直すことになるためです。
+    // 本当に止まっていた場合は、停止検知（ウォッチドッグ）が見積もった所要時間を過ぎてから復帰させます。
+    if (synthesis.speaking && !synthesis.pending && !synthesis.paused) {
+      markUtteranceStarted();
+      return;
+    }
     retryStalledStart(activeSessionId, safeStartOffset);
   }, startLimitMs);
 }
@@ -1172,8 +1180,22 @@ function startSpeaking() {
   if (!needsCancel) {
     if (isPrimingSynthesis) {
       afterPrimingCallback = () => {
-        if (isPaused) return;
-        speakCurrentChunk(activeSessionId);
+        if (!isReading || isPaused || activeSessionId !== sessionId) return;
+        // 無音の発話が終わったと知らせてこないまま待つのをやめた場合は、まだ残っている無音の発話を解除します。
+        // 後ろへ並べると、音は出ても開始や読み上げ位置の知らせが届かないことがあるためです。
+        if (!synthesis.speaking && !synthesis.pending) {
+          speakCurrentChunk(activeSessionId);
+          return;
+        }
+        synthesis.resume();
+        synthesis.cancel();
+        isRecovering = true;
+        window.clearTimeout(restartTimerId);
+        restartTimerId = window.setTimeout(() => {
+          isRecovering = false;
+          if (!isReading || isPaused || activeSessionId !== sessionId) return;
+          speakCurrentChunk(activeSessionId);
+        }, RESTART_DELAY_MS);
       };
       return;
     }
