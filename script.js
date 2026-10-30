@@ -369,7 +369,8 @@ function removeFilePaths(text) {
  * ChatGPTなどからコピーした文章に残る、出典リンク用の制御文字列を取り除きます。
  * 読み上げても意味がわからないため、読み上げる文章から除外します。
  * 例：:chatgpt-content-reference{index="3"}、::contentReference[oaicite:3]{index=3}、
- *     【3†source】、citeturn0search3、出典チップの「マイナビジョブ +1」
+ *     【3†source】、citeturn0search3、出典チップの「マイナビジョブ +1」、
+ *     Claudeの出典バッジ [13:13](<citation:シート名!13:13>)
  */
 function removeCitationMarkers(text) {
   return text
@@ -378,6 +379,12 @@ function removeCitationMarkers(text) {
     // ::contentReference[oaicite:3]{index=3} のような参照記法
     .replace(/:{0,2}contentReference\[[^\]\n]*\](?:\{[^}\n]*\})?/gi, "")
     .replace(/\[oaicite:\d+\]/gi, "")
+    // Claudeの出典バッジ（例：[13:13](<citation:シート名!13:13>)）
+    .replace(/\[[^\]\n]*\]\([ \t]*[<＜]citation:[^<>＜＞\n]*[>＞][ \t]*\)/gi, "")
+    .replace(/[<＜]citation:[^<>＜＞\n]*[>＞]/gi, "")
+    // 出典バッジを消して空になった「選択範囲：」の見出し（例：（選択範囲：、約200字） → （約200字））
+    .replace(/([（(])[ \t　]*選択範囲[ \t　]*[:：][ \t　]*[、,][ \t　]*/g, "$1")
+    .replace(/[、,]?[ \t　]*選択範囲[ \t　]*[:：][ \t　]*(?=[）)])/g, "")
     // 【3†source】【4:0†資料.pdf】 のような出典番号
     .replace(/【[^【】\n]*†[^【】\n]*】/g, "")
     // 私用領域の文字で囲まれた出典（コピー時に「citeturn0search3」の形で残るもの）
