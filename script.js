@@ -62,6 +62,9 @@ const SKIP_STEP_LENGTH = 4;
 const MAX_FAILURE_STREAK = 4;
 const KEEP_ALIVE_INTERVAL = 10000;
 const RECOVERY_NOTICE_DURATION = 4000;
+// 終了の知らせが届かないまま音声エンジンが止まっていたとき、読み終えたとみなすのに必要な経過時間の割合です。
+// 見積もりの所要時間は遅めに見ているため、実際にはその半分ほどで読み終えることがあります。
+const SILENT_END_MIN_RATIO = 0.4;
 
 // ページ送りは、続けて押されたときにまとめて処理します。
 // 押すたびに読み上げ直すと、そのたびに音声の準備が入って追いつかなくなるためです。
@@ -124,6 +127,11 @@ let primeTimerId = 0;
 let afterPrimingCallback = null;
 // 最後に音声エンジンを使った（または起こした）時刻です。0は一度も使っていないことを表します。
 let lastSynthesisActivityAt = 0;
+// 読み上げ中の発話です。ブラウザによっては、どこからも参照されていない発話が途中で片付けられ、
+// 読み上げ位置や終了の知らせが届かなくなるため、終わるまでここで持っておきます。
+let currentUtterance = null;
+// 発話を頼んだ時刻です。終了の知らせが届かなかったときに、読み終えたかどうかの目安にします。
+let utteranceRequestedAt = 0;
 
 // ページ送りで移動する先です。まとめて処理するまでの間だけ使います。
 let jumpTimerId = 0;
@@ -743,6 +751,7 @@ function recoverFromInterruption(isError) {
  */
 function checkForStall() {
   if (!isReading || isPaused || isRecovering) return;
+  if (finishSilentlyEndedUtterance()) return;
 
   const idleMs = Date.now() - lastProgressAt;
   const limitMs = boundaryCount >= 3
@@ -751,6 +760,21 @@ function checkForStall() {
 
   if (idleMs < limitMs) return;
   recoverFromInterruption(false);
+}
+
+/**
+ * 読み上げ位置の知らせが一度も届かないまま、音声エンジンが読み上げを終えていないかを確認します。
+ * しばらく使っていなかった後のEdgeなどでは、音は最後まで出ているのに、読み上げ位置も終了も知らせてこないことがあります。
+ * これを止まったと判断すると、聞き終えたページを最初から読み直してしまうため、読み終えたものとして次へ進みます。
+ * 見積もりよりずっと早くエンジンが止まっている場合は、途中で止まった可能性があるため、通常の停止検知に任せます。
+ */
+function finishSilentlyEndedUtterance() {
+  if (!isReading || isPaused || isRecovering) return false;
+  if (!hasUtteranceStarted || boundaryCount > 0) return false;
+  if (synthesis.speaking || synthesis.pending) return false;
+  if (Date.now() - utteranceRequestedAt < expectedDurationMs * SILENT_END_MIN_RATIO) return false;
+  finishCurrentChunk(sessionId);
+  return true;
 }
 
 // 読み上げ中だけ、停止検知と長文対策のタイマーを動かします。
@@ -798,6 +822,7 @@ function stopPlaybackTimers() {
   isRecovering = false;
   isWaitingForStart = false;
   hasUtteranceStarted = false;
+  currentUtterance = null;
 }
 
 /**
@@ -893,6 +918,18 @@ function retryStalledStart(activeSessionId, startOffset) {
     if (!isReading || isPaused || activeSessionId !== sessionId) return;
     speakCurrentChunk(activeSessionId, startOffset);
   }, START_RETRY_DELAY_MS);
+}
+
+// 現在のチャンクを読み終えたものとして、次のチャンクを読み上げます。
+function finishCurrentChunk(activeSessionId) {
+  markUtteranceStarted();
+  hasSpokenAnything = true;
+  currentChunkIndex += 1;
+  currentChunkOffset = 0;
+  recoveryOffset = -1;
+  skipAttempts = 0;
+  failureStreak = 0;
+  speakCurrentChunk(activeSessionId);
 }
 
 // 現在のチャンクをstartOffset文字目から読み上げます。完了すると次のチャンクへ進みます。
@@ -992,14 +1029,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   utterance.onend = () => {
     if (isStaleUtterance()) return;
-    markUtteranceStarted();
-    hasSpokenAnything = true;
-    currentChunkIndex += 1;
-    currentChunkOffset = 0;
-    recoveryOffset = -1;
-    skipAttempts = 0;
-    failureStreak = 0;
-    speakCurrentChunk(activeSessionId);
+    finishCurrentChunk(activeSessionId);
   };
 
   // 一部の記号やオンライン音声の通信状況が原因で、特定の箇所だけ合成に失敗することがあります。
@@ -1021,6 +1051,8 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   }
 
   hasUtteranceStarted = false;
+  currentUtterance = utterance;
+  utteranceRequestedAt = Date.now();
   releasePendingPause();
   synthesis.speak(utterance);
 
