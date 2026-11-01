@@ -65,6 +65,14 @@ const RECOVERY_NOTICE_DURATION = 4000;
 // 終了の知らせが届かないまま音声エンジンが止まっていたとき、読み終えたとみなすのに必要な経過時間の割合です。
 // 見積もりの所要時間は遅めに見ているため、実際にはその半分ほどで読み終えることがあります。
 const SILENT_END_MIN_RATIO = 0.4;
+// 実際に読み終えるまでにかかった時間から、音声ごとの読む速さを覚えておきます。
+// 読み上げ位置の知らせが届かないときに、読み終えたと判断するまでの待ち時間を短くするためです。
+const SPEECH_PACE_STORAGE_KEY = "yomiage-speech-pace";
+// 速さを覚えるのは、ある程度の長さを最後まで読み上げられた発話だけにします。
+const MIN_PACE_SAMPLE_LENGTH = 30;
+// 覚えた速さから見積もった時間に、この割合と時間を上乗せして待ちます。
+const LEARNED_PACE_MARGIN_RATIO = 1.25;
+const LEARNED_PACE_MARGIN_MS = 3000;
 
 // ページ送りは、続けて押されたときにまとめて処理します。
 // 押すたびに読み上げ直すと、そのたびに音声の準備が入って追いつかなくなるためです。
@@ -132,6 +140,10 @@ let lastSynthesisActivityAt = 0;
 let currentUtterance = null;
 // 発話を頼んだ時刻です。終了の知らせが届かなかったときに、読み終えたかどうかの目安にします。
 let utteranceRequestedAt = 0;
+// 発話の音が出始めた時刻です。開始の知らせが届かない場合は、頼んだ時刻を使います。
+let utteranceStartedAt = 0;
+// 音声ごとに覚えた、1文字あたりの読み上げ時間（速さ1倍のとき）です。
+let speechPaceByVoice = loadSpeechPace();
 
 // ページ送りで移動する先です。まとめて処理するまでの間だけ使います。
 let jumpTimerId = 0;
@@ -765,8 +777,87 @@ function checkForStall() {
     ? Math.max(STALL_GRACE_MS, maxBoundaryGap * 3)
     : expectedDurationMs + STALL_EXTRA_MARGIN_MS;
 
+  // 読み上げ位置の知らせが一度も届いていない発話は、音が出ていても進み具合がわかりません。
+  // 見積もりの所要時間を大きく過ぎているなら、音は最後まで出ていて終了の知らせだけが届かなかったとみなし、次のページへ進みます。
+  // ここで読み直すと、進み具合が0文字のままなので、聞き終えたページを最初から繰り返してしまうためです。
+  if (boundaryCount === 0 && hasUtteranceStarted) {
+    if (Date.now() - utteranceStartedAt < getSilentChunkLimitMs()) return;
+    skipUnreportedChunk();
+    return;
+  }
+
   if (idleMs < limitMs) return;
   recoverFromInterruption(false);
+}
+
+/**
+ * 読み上げ位置の知らせが届かない発話を、読み終えたとみなすまでの待ち時間です。
+ * この音声で実際に読み終えた速さを覚えていれば、それをもとに短めに見積もります。
+ */
+function getSilentChunkLimitMs() {
+  const fallbackMs = expectedDurationMs + STALL_EXTRA_MARGIN_MS;
+  const pace = speechPaceByVoice[voiceSelect.value];
+  if (!pace) return fallbackMs;
+  const rate = Number(rateInput.value) || 1;
+  const spokenLength = (chunks[currentChunkIndex] || "").length - currentChunkOffset;
+  const learnedMs = (spokenLength * pace) / rate * LEARNED_PACE_MARGIN_RATIO + LEARNED_PACE_MARGIN_MS;
+  return Math.min(fallbackMs, learnedMs);
+}
+
+/**
+ * 終了の知らせが届かないまま固まっている発話を片付けて、次のページへ進みます。
+ * 音声エンジンが読み上げ中のまま固まっていることがあるため、解除してから少し間をあけて読み上げます。
+ */
+function skipUnreportedChunk() {
+  const activeSessionId = sessionId;
+  isRecovering = true;
+  utteranceId += 1;
+  synthesis.resume();
+  synthesis.cancel();
+
+  // 間をあけている間に一時停止されても、再開したときに同じページを読み直さないよう、先に位置を進めておきます。
+  hasSpokenAnything = true;
+  currentChunkIndex += 1;
+  currentChunkOffset = 0;
+  recoveryOffset = -1;
+  skipAttempts = 0;
+  failureStreak = 0;
+
+  window.clearTimeout(restartTimerId);
+  restartTimerId = window.setTimeout(() => {
+    isRecovering = false;
+    startRetryCount = 0;
+    if (!isReading || isPaused || activeSessionId !== sessionId) return;
+    speakCurrentChunk(activeSessionId);
+  }, RESTART_DELAY_MS);
+}
+
+// 保存しておいた、音声ごとの読む速さを読み込みます。
+function loadSpeechPace() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SPEECH_PACE_STORAGE_KEY) || "{}");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+/**
+ * 最後まで読み上げられた発話の所要時間から、音声ごとの読む速さを覚えます。
+ * 1回ごとのばらつきをならすため、これまでの値と混ぜて少しずつ更新します。
+ */
+function rememberSpeechPace(voiceURI, textLength, rate, elapsedMs) {
+  if (!voiceURI || textLength < MIN_PACE_SAMPLE_LENGTH || elapsedMs <= 0) return;
+  const pace = (elapsedMs * rate) / textLength;
+  // 極端な値（すぐに終わった、長く待たされた）は覚えません。
+  if (pace < 40 || pace > ESTIMATED_MS_PER_CHARACTER * 2) return;
+  const previous = speechPaceByVoice[voiceURI];
+  speechPaceByVoice[voiceURI] = previous ? previous * 0.7 + pace * 0.3 : pace;
+  try {
+    localStorage.setItem(SPEECH_PACE_STORAGE_KEY, JSON.stringify(speechPaceByVoice));
+  } catch (error) {
+    // 保存できないブラウザでも、今回の読み上げの間は覚えた値を使います。
+  }
 }
 
 /**
@@ -889,6 +980,7 @@ function releasePendingPause() {
 function markUtteranceStarted() {
   window.clearTimeout(startTimerId);
   startTimerId = 0;
+  if (!hasUtteranceStarted) utteranceStartedAt = Date.now();
   hasUtteranceStarted = true;
   startRetryCount = 0;
   lastSynthesisActivityAt = Date.now();
@@ -1036,6 +1128,10 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   utterance.onend = () => {
     if (isStaleUtterance()) return;
+    // 読み上げ位置の知らせが届いていた発話なら、実際に音が出ていた時間として速さを覚えます。
+    if (boundaryCount > 0 && hasUtteranceStarted) {
+      rememberSpeechPace(utterance.voice ? utterance.voice.voiceURI : "", spokenText.length, rate, Date.now() - utteranceStartedAt);
+    }
     finishCurrentChunk(activeSessionId);
   };
 
@@ -1060,6 +1156,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   hasUtteranceStarted = false;
   currentUtterance = utterance;
   utteranceRequestedAt = Date.now();
+  utteranceStartedAt = utteranceRequestedAt;
   releasePendingPause();
   synthesis.speak(utterance);
 
