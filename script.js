@@ -358,6 +358,45 @@ function expandEnglishAbbreviations(text) {
   });
 }
 
+// アメリカの州の略称（郵便で使う2文字の記号）と、読み上げるときの州名です。
+const US_STATE_NAMES = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+  DC: "District of Columbia",
+};
+// 英単語と同じつづりの略称です。誤って置き換えないよう、郵便番号が続くときか「州」が付くときだけ対象にします。
+const AMBIGUOUS_US_STATE_CODES = new Set(["DE", "HI", "ID", "IN", "LA", "MA", "ME", "OH", "OK", "OR"]);
+const US_STATE_CODE = `(${Object.keys(US_STATE_NAMES).join("|")})`;
+const US_STATE_PATTERNS = [
+  // 都市名に続く略称（例：Charlotte, NC 28273、Charlotte, NC, USA）。
+  // 「the IN keyword, CA certificate」のような英文と区別するため、直後が行末・記号・日本語のときだけ対象にします。
+  new RegExp(String.raw`(?<=[A-Za-z.][ \t]*,[ \t]*)${US_STATE_CODE}(?=([ \t]+\d{5}(?:-\d{4})?)?[ \t]*(?:$|[^\x00-\x7F]|[,.;:)\]]))`, "gm"),
+  // 「州」が付く略称（例：NC州）
+  new RegExp(String.raw`(?<![A-Za-z0-9])${US_STATE_CODE}(?=[ \t\u3000]*州)`, "g"),
+];
+
+/**
+ * 「Charlotte, NC」の「NC」のようなアメリカの州の略称は、1文字ずつ読まれて州名だと伝わらないため、
+ * 「North Carolina」のように省略しない州名に置き換えて読み上げます。
+ * 例：Charlotte, NC 28273 → Charlotte, North Carolina 28273、NC州 → North Carolina州
+ * 「Yes, OK」のような英単語と同じつづりの略称は、郵便番号が続くときか「州」が付くときだけ置き換えます。
+ */
+function expandUsStateAbbreviations(text) {
+  return US_STATE_PATTERNS.reduce((result, pattern, index) => result.replace(pattern, (match, code, zipCode) => {
+    const isStateSuffix = index === 1;
+    if (!isStateSuffix && !zipCode && AMBIGUOUS_US_STATE_CODES.has(code)) return match;
+    return US_STATE_NAMES[code];
+  }), text);
+}
+
 /**
  * 「4/21」のような月日の表記は「21分の4」と分数として読み上げられてしまうため、
  * 「4月21日」に置き換えて日付として読み上げられるようにします。
@@ -459,7 +498,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(expandUsStateAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
