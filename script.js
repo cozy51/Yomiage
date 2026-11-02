@@ -313,6 +313,42 @@ function removeExcelReferences(text) {
   return EXCEL_REFERENCE_PATTERNS.reduce((result, pattern) => result.replace(pattern, ""), text);
 }
 
+// 社名などに付く英語の略語と、読み上げるときの元の単語です。
+const ENGLISH_ABBREVIATIONS = {
+  Pte: "Private",
+  Ltd: "Limited",
+  Inc: "Incorporated",
+  Corp: "Corporation",
+  Co: "Company",
+  Bhd: "Berhad",
+  Sdn: "Sendirian",
+  Mfg: "Manufacturing",
+  Intl: "International",
+  Dept: "Department",
+  Govt: "Government",
+  Assn: "Association",
+  Bros: "Brothers",
+};
+const ENGLISH_ABBREVIATION_PATTERN = new RegExp(
+  String.raw`(?<![A-Za-z])(${Object.keys(ENGLISH_ABBREVIATIONS).join("|")})\.`,
+  "gi",
+);
+
+/**
+ * 「Pte.」「Ltd.」のような英語の略語は、略したままでは不自然な読み方になるため、
+ * 「Private」「Limited」のように省略しない単語に置き換えて読み上げます。
+ * 例：ABC Pte. Ltd. → ABC Private Limited、XYZ Co., Ltd. → XYZ Company, Limited
+ * ピリオドの付いたものだけを対象にし、ふつうの単語（「Coffee」など）は変えません。
+ */
+function expandEnglishAbbreviations(text) {
+  // 「LTD.」のような大文字の表記も対象です。大文字のままだと1文字ずつ読まれることがあるため、
+  // 置き換えた単語は先頭だけ大文字にそろえます。
+  return text.replace(ENGLISH_ABBREVIATION_PATTERN, (match, word) => {
+    const key = Object.keys(ENGLISH_ABBREVIATIONS).find((name) => name.toLowerCase() === word.toLowerCase());
+    return ENGLISH_ABBREVIATIONS[key];
+  });
+}
+
 /**
  * 「4/21」のような月日の表記は「21分の4」と分数として読み上げられてしまうため、
  * 「4月21日」に置き換えて日付として読み上げられるようにします。
@@ -414,7 +450,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
