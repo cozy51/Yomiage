@@ -397,6 +397,31 @@ function expandUsStateAbbreviations(text) {
   }), text);
 }
 
+// アメリカの都市を表す3文字の記号（空港コード）と、読み上げるときの都市名です。
+// 英単語や他の略語と同じつづりのもの（SEA、SAN、AUSなど）は含めません。
+const US_CITY_CODES = {
+  CLT: "Charlotte", ATL: "Atlanta", ORD: "Chicago", DFW: "Dallas Fort Worth", IAH: "Houston",
+  PHX: "Phoenix", BOS: "Boston", DTW: "Detroit", MSP: "Minneapolis", LAX: "Los Angeles",
+  SFO: "San Francisco", SJC: "San Jose", DEN: "Denver", MCO: "Orlando", MIA: "Miami",
+  EWR: "Newark", PHL: "Philadelphia", PIT: "Pittsburgh", CLE: "Cleveland", CVG: "Cincinnati",
+  IND: "Indianapolis", MEM: "Memphis", BNA: "Nashville", RDU: "Raleigh", GSP: "Greenville",
+  SLC: "Salt Lake City", PDX: "Portland", LAS: "Las Vegas", STL: "Saint Louis", MCI: "Kansas City",
+  MKE: "Milwaukee", CMH: "Columbus", SDF: "Louisville", BWI: "Baltimore",
+};
+const US_CITY_CODE_PATTERN = new RegExp(String.raw`(?<![A-Za-z0-9])(${Object.keys(US_CITY_CODES).join("|")})(?![A-Za-z0-9])`, "g");
+// アメリカに関する文章かどうかの目印です。
+const US_CONTEXT_PATTERN = /(?<![A-Za-z])(?:USA|U\.S\.A?\.?|United States|America)(?![A-Za-z])|米国|アメリカ|北米/i;
+
+/**
+ * 「MURATA MACHINERY USA, Inc. CLT」の「CLT」のような、アメリカの拠点を表す3文字の都市コードは、
+ * 1文字ずつ読まれて場所が伝わらないため、「Charlotte」のように都市名に置き換えて読み上げます。
+ * ほかの意味の略語と取り違えないよう、文章中に「USA」「米国」などアメリカを示す言葉があるときだけ置き換えます。
+ */
+function expandUsCityCodes(text) {
+  if (!US_CONTEXT_PATTERN.test(text)) return text;
+  return text.replace(US_CITY_CODE_PATTERN, (match, code) => US_CITY_CODES[code]);
+}
+
 /**
  * 「4/21」のような月日の表記は「21分の4」と分数として読み上げられてしまうため、
  * 「4月21日」に置き換えて日付として読み上げられるようにします。
@@ -498,7 +523,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(expandUsStateAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(expandUsCityCodes(expandUsStateAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
