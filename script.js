@@ -3205,6 +3205,108 @@ textInput.addEventListener("paste", (event) => {
   startReading();
 });
 
+// ===== 選択した文字をコピーせずに読み上げる（ブックマークレット） =====
+// ほかのタブ（ブラウザで開いたメールなど）で選択した文字を、URLの「#」より後ろに入れてこのページへ渡します。
+// 「#」より後ろはサーバーへ送られないため、メールの本文が外部へ記録されることはありません。
+
+const SELECTION_HASH_KEY = "yomiage-text";
+// ブックマークレットは、この名前のタブを使い回します（開くたびにタブが増えないようにします）。
+const SELECTION_WINDOW_NAME = "yomiage";
+
+let pendingSelectionStart = null;
+
+// ブックマークレットの中身です。選択した文字（入力欄・同じサイトの枠の中を含む）を取り出して、このページへ渡します。
+function buildBookmarklet() {
+  const pageUrl = `${location.origin}${location.pathname}`;
+  const source = `(()=>{const pick=(w)=>{try{const d=w.document,a=d.activeElement;`
+    + `if(a&&/^(TEXTAREA|INPUT)$/.test(a.tagName)&&a.selectionEnd>a.selectionStart)return a.value.slice(a.selectionStart,a.selectionEnd);`
+    + `let t=String(w.getSelection()||"");if(t.trim())return t;`
+    + `for(const f of d.querySelectorAll("iframe,frame")){t=pick(f.contentWindow);if(t.trim())return t}}catch(e){}return""};`
+    + `const t=pick(window);if(!t.trim()){alert("読み上げたい文字を選択してから押してください。");return}`
+    + `window.open(${JSON.stringify(`${pageUrl}#${SELECTION_HASH_KEY}=`)}+encodeURIComponent(t),${JSON.stringify(SELECTION_WINDOW_NAME)})})()`;
+  return `javascript:${encodeURIComponent(source)}`;
+}
+
+function setupBookmarkletLink() {
+  const link = document.getElementById("bookmarklet-link");
+  if (!link) return;
+  link.href = buildBookmarklet();
+  // このページの中で押しても意味がないため、登録のしかたを案内します。
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    showError("このボタンは、ブックマークバーへドラッグして登録してから使います。");
+  });
+}
+
+// URLの「#yomiage-text=…」から文章を取り出し、URLからは消しておきます（再読み込みで読み直さないようにします）。
+function takeSelectionFromHash() {
+  const prefix = `#${SELECTION_HASH_KEY}=`;
+  if (!location.hash.startsWith(prefix)) return "";
+  let text = "";
+  try {
+    text = decodeURIComponent(location.hash.slice(prefix.length));
+  } catch {
+    text = "";
+  }
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  return text;
+}
+
+function cancelPendingSelectionStart() {
+  if (!pendingSelectionStart) return;
+  document.removeEventListener("pointerdown", pendingSelectionStart, true);
+  document.removeEventListener("keydown", pendingSelectionStart, true);
+  pendingSelectionStart = null;
+}
+
+/**
+ * ほかのタブで選択した文字を受け取り、すぐに読み上げます。
+ * 一度も操作していないページはブラウザの制限で音を出せないため、そのときは最初の操作で読み上げを始めます。
+ */
+function readSelectionFromHash() {
+  const receivedText = takeSelectionFromHash();
+  if (!receivedText.trim()) return;
+
+  cancelPendingSelectionStart();
+  clearBeforeClipboardReading();
+  const sanitizedText = cleanPastedText(receivedText);
+  if (!sanitizedText.trim()) {
+    showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
+    return;
+  }
+
+  textInput.value = sanitizedText;
+  markInputSource("text");
+  updateCharacterCount();
+
+  const canSpeakNow = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+  if (canSpeakNow) {
+    startReading();
+    return;
+  }
+
+  statusText.classList.remove("error");
+  statusText.textContent = "選択した文字を受け取りました。ページのどこかをクリック（またはキーを押す）と読み上げます。";
+  pendingSelectionStart = (event) => {
+    cancelPendingSelectionStart();
+    // ボタンなどを操作したときは、その操作を優先し、読み上げは始めません。
+    if (event.target instanceof Element
+      && event.target.closest("button, a, input, textarea, select, summary, label, dialog")) {
+      updateControls("idle");
+      return;
+    }
+    // 画面の枠外を押したときに読み上げを止める処理などが先に済んでから始めます。
+    window.setTimeout(startReading, 0);
+  };
+  document.addEventListener("pointerdown", pendingSelectionStart, true);
+  document.addEventListener("keydown", pendingSelectionStart, true);
+}
+
+window.name = SELECTION_WINDOW_NAME;
+setupBookmarkletLink();
+// 同じタブが使い回されたときは、ページを読み込み直さずに「#」より後ろだけが変わります。
+window.addEventListener("hashchange", readSelectionFromHash);
+
 rateInput.addEventListener("input", () => {
   const rate = Number(rateInput.value) || 1;
   rateOutput.textContent = `${rate.toFixed(1)}倍`;
@@ -3351,3 +3453,6 @@ if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) {
   stopButton.disabled = true;
   showError("このブラウザは音声読み上げ機能に対応していません。Chrome、Edge、Safariなどをお試しください。");
 }
+
+// ブックマークレットから開かれたときは、受け取った文字を読み上げます。
+if (!speakButton.disabled) readSelectionFromHash();
