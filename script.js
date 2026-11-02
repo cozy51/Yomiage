@@ -71,8 +71,12 @@ const SPEECH_PACE_STORAGE_KEY = "yomiage-speech-pace";
 // 速さを覚えるのは、ある程度の長さを最後まで読み上げられた発話だけにします。
 const MIN_PACE_SAMPLE_LENGTH = 30;
 // 覚えた速さから見積もった時間に、この割合と時間を上乗せして待ちます。
-const LEARNED_PACE_MARGIN_RATIO = 1.25;
-const LEARNED_PACE_MARGIN_MS = 3000;
+const LEARNED_PACE_MARGIN_RATIO = 1.15;
+const LEARNED_PACE_MARGIN_MS = 2000;
+// 読み上げ位置の知らせが届かない発話には、すぐ後ろへ音量0の短い発話（終わりの目印）を並べます。
+// 目印の順番が回ってきたら、前の発話は読み終えたとわかるため、見積もり時間まで待たずに次のページへ進めます。
+// 音が出始めてからこの時間たっても読み上げ位置の知らせが届かないときに並べます。
+const END_MARKER_DELAY_MS = 1500;
 
 // ページ送りは、続けて押されたときにまとめて処理します。
 // 押すたびに読み上げ直すと、そのたびに音声の準備が入って追いつかなくなるためです。
@@ -144,6 +148,11 @@ let utteranceRequestedAt = 0;
 let utteranceStartedAt = 0;
 // 音声ごとに覚えた、1文字あたりの読み上げ時間（速さ1倍のとき）です。
 let speechPaceByVoice = loadSpeechPace();
+// 開始の知らせ（onstartや読み上げ位置の知らせ）で、音が出始めた時刻を正確に把握できたかどうかです。
+let isStartTimeReliable = false;
+// 終わりの目印を並べたかどうかと、目印が順番待ちになっているのを確認できたかどうかです。
+let isEndMarkerQueued = false;
+let hasSeenEndMarkerPending = false;
 
 // ページ送りで移動する先です。まとめて処理するまでの間だけ使います。
 let jumpTimerId = 0;
@@ -817,6 +826,7 @@ function checkForStall() {
   // 見積もりの所要時間を大きく過ぎているなら、音は最後まで出ていて終了の知らせだけが届かなかったとみなし、次のページへ進みます。
   // ここで読み直すと、進み具合が0文字のままなので、聞き終えたページを最初から繰り返してしまうためです。
   if (boundaryCount === 0 && hasUtteranceStarted) {
+    if (checkEndMarker()) return;
     if (Date.now() - utteranceStartedAt < getSilentChunkLimitMs()) return;
     skipUnreportedChunk();
     return;
@@ -824,6 +834,67 @@ function checkForStall() {
 
   if (idleMs < limitMs) return;
   recoverFromInterruption(false);
+}
+
+/**
+ * 読み上げ位置の知らせが届かない発話の後ろへ、終わりの目印を並べ、その順番が回ってきたかを確認します。
+ * 目印が順番待ち（pending）から外れたら、前の発話は読み終えたとみなして次のページへ進みます。
+ * 進めたときはtrueを返します。
+ */
+function checkEndMarker() {
+  if (!isEndMarkerQueued) {
+    if (Date.now() - utteranceStartedAt >= END_MARKER_DELAY_MS) queueEndMarker();
+    return false;
+  }
+  if (synthesis.pending) {
+    hasSeenEndMarkerPending = true;
+    return false;
+  }
+  // 目印が順番待ちになっているのを一度も確認できていないときは、判断材料にしません。
+  if (!hasSeenEndMarkerPending) return false;
+  finishByEndMarker();
+  return true;
+}
+
+// 読み上げ中の発話のすぐ後ろへ、音量0の終わりの目印を並べます。
+function queueEndMarker() {
+  const markerUtteranceId = utteranceId;
+  isEndMarkerQueued = true;
+  hasSeenEndMarkerPending = false;
+  try {
+    const marker = new SpeechSynthesisUtterance("\u3000");
+    marker.volume = 0;
+    const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
+    if (selectedVoice) {
+      marker.voice = selectedVoice;
+      marker.lang = selectedVoice.lang;
+    } else {
+      marker.lang = "ja-JP";
+    }
+    // 目印の開始や終了の知らせが届いたら、その時点で前の発話は読み終えています。
+    const onMarkerReached = () => {
+      if (markerUtteranceId !== utteranceId || !isReading || isPaused || isRecovering) return;
+      if (boundaryCount > 0) return;
+      finishByEndMarker();
+    };
+    marker.onstart = onMarkerReached;
+    marker.onend = onMarkerReached;
+    marker.onerror = () => {};
+    synthesis.speak(marker);
+    if (synthesis.pending) hasSeenEndMarkerPending = true;
+  } catch (error) {
+    console.warn("終わりの目印を並べられませんでした。", error);
+  }
+}
+
+// 終わりの目印の順番が回ってきたので、前の発話は読み終えたとして次のページへ進みます。
+function finishByEndMarker() {
+  if (isStartTimeReliable && currentUtterance) {
+    const spokenLength = (chunks[currentChunkIndex] || "").length - currentChunkOffset;
+    const voiceURI = currentUtterance.voice ? currentUtterance.voice.voiceURI : "";
+    rememberSpeechPace(voiceURI, spokenLength, currentUtterance.rate || 1, Date.now() - utteranceStartedAt);
+  }
+  skipUnreportedChunk();
 }
 
 /**
@@ -841,8 +912,9 @@ function getSilentChunkLimitMs() {
 }
 
 /**
- * 終了の知らせが届かないまま固まっている発話を片付けて、次のページへ進みます。
+ * 終了の知らせが届かないまま固まっている発話や、残っている終わりの目印を片付けて、次のページへ進みます。
  * 音声エンジンが読み上げ中のまま固まっていることがあるため、解除してから少し間をあけて読み上げます。
+ * 目印の後ろへ次の発話を並べると、読み上げ位置の知らせが届かなくなることがあるためでもあります。
  */
 function skipUnreportedChunk() {
   const activeSessionId = sessionId;
@@ -956,6 +1028,8 @@ function stopPlaybackTimers() {
   isRecovering = false;
   isWaitingForStart = false;
   hasUtteranceStarted = false;
+  isEndMarkerQueued = false;
+  hasSeenEndMarkerPending = false;
   currentUtterance = null;
 }
 
@@ -1137,6 +1211,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
     if (isStaleUtterance()) return;
     lastProgressAt = Date.now();
     markUtteranceStarted();
+    isStartTimeReliable = true;
   };
 
   // ブラウザから読み上げ位置が通知されるたび、該当する語句を強調します。
@@ -1151,6 +1226,7 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
     lastProgressAt = now;
     failureStreak = 0;
     hasSpokenAnything = true;
+    if (!hasUtteranceStarted) isStartTimeReliable = true;
     markUtteranceStarted();
 
     // ハイライト位置は単語の先頭へ戻ることがあるため、到達位置は別に記録します。
@@ -1165,8 +1241,14 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   utterance.onend = () => {
     if (isStaleUtterance()) return;
     // 読み上げ位置の知らせが届いていた発話なら、実際に音が出ていた時間として速さを覚えます。
-    if (boundaryCount > 0 && hasUtteranceStarted) {
+    // 読み上げ位置の知らせがなくても、開始の知らせが届いていれば所要時間は正確なので覚えます。
+    if (hasUtteranceStarted && (boundaryCount > 0 || isStartTimeReliable)) {
       rememberSpeechPace(utterance.voice ? utterance.voice.voiceURI : "", spokenText.length, rate, Date.now() - utteranceStartedAt);
+    }
+    // 終わりの目印が残っているときは、片付けてから次のページを読み上げます。
+    if (isEndMarkerQueued) {
+      skipUnreportedChunk();
+      return;
     }
     finishCurrentChunk(activeSessionId);
   };
@@ -1190,6 +1272,9 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
   }
 
   hasUtteranceStarted = false;
+  isStartTimeReliable = false;
+  isEndMarkerQueued = false;
+  hasSeenEndMarkerPending = false;
   currentUtterance = utterance;
   utteranceRequestedAt = Date.now();
   utteranceStartedAt = utteranceRequestedAt;
