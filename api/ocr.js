@@ -15,6 +15,7 @@
 const { isAuthConfigured, isAuthenticated } = require("./_auth");
 // Geminiの呼び出しとモデル名は、文章の処理（api/ai.js）と共通の処理を使います。
 const { getGeminiModel, generateText, listAvailableModels } = require("./_gemini");
+const { SUMMARIZE_INSTRUCTION, SUMMARIZE_DETAIL_INSTRUCTION } = require("./_prompts");
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -46,6 +47,64 @@ const OCR_PROMPT = `この画像に表示されている文章を文字として
 Webサイトやアプリのスクリーンショットの場合でも、本文として読める文章を優先して抽出してください。
 
 ボタン名やナビゲーションなども、文章として必要な場合のみ抽出してください。`;
+
+// 画像をそのまま要約するときの見出しです。読み取った文章と要約を、1回の返事で分けて受け取るために使います。
+const TRANSCRIPT_HEADING = "【読み取り】";
+const SUMMARY_HEADING = "【要約】";
+const SUMMARY_ACTIONS = ["summarize", "summarize-detail"];
+
+// 要約の指示から、守らせるルールの部分だけを取り出します（文章の要約と同じルールを使うためです）。
+function readSummaryRules(instruction) {
+  const marker = "必ず守ってください。";
+  const index = instruction.indexOf(marker);
+  return (index >= 0 ? instruction.slice(index + marker.length) : instruction).trim();
+}
+
+/**
+ * 画像の文章を読み取り、続けて要約までを1回で行わせる指示です。
+ * 無料OCRの崩れた文字を要約すると、読み取りの誤りがそのまま要約の誤りになるため、
+ * 画像そのものを見て読み取らせます。先に本文を書き起こさせてから要約させることで、
+ * 深く考えさせなくても（料金と時間を増やさずに）要約が画像の内容から外れにくくなります。
+ */
+function buildImageSummaryInstruction(action) {
+  const isDetail = action === "summarize-detail";
+  const summaryRules = readSummaryRules(isDetail ? SUMMARIZE_DETAIL_INSTRUCTION : SUMMARIZE_INSTRUCTION);
+
+  return `あなたは画像の文章を読み取り、その内容を日本語で${isDetail ? "丁寧で詳しめに" : "簡潔に"}要約します。
+次の形式で、2つの見出しをこの順番で1回ずつ書いて返してください。見出しの前後に前置きや解説は付けません。
+
+${TRANSCRIPT_HEADING}
+（画像の本文を書き起こした文章）
+${SUMMARY_HEADING}
+（書き起こした文章の要約）
+
+${TRANSCRIPT_HEADING}は、次のルールで書き起こしてください。
+
+${OCR_PROMPT}
+
+${SUMMARY_HEADING}は、${TRANSCRIPT_HEADING}で書き起こした文章だけをもとに、次のルールで書いてください。
+
+${summaryRules}
+・画像から読み取れない内容を推測で補わない`;
+}
+
+// 返事を「読み取った文章」と「要約」に分けます。要約の見出しがないときは、要約を空にします。
+function splitImageSummary(text) {
+  const summaryIndex = text.lastIndexOf(SUMMARY_HEADING);
+  const transcriptPart = summaryIndex >= 0 ? text.slice(0, summaryIndex) : text;
+  const summary = summaryIndex >= 0 ? text.slice(summaryIndex + SUMMARY_HEADING.length).trim() : "";
+  const transcriptIndex = transcriptPart.indexOf(TRANSCRIPT_HEADING);
+  const transcript = (transcriptIndex >= 0
+    ? transcriptPart.slice(transcriptIndex + TRANSCRIPT_HEADING.length)
+    : transcriptPart).trim();
+  return { transcript, summary };
+}
+
+// 見た目の違い（空白や改行、全角と半角）を無視して、中身が同じかどうかを調べます。
+function isSameText(left, right) {
+  const normalize = (value) => value.replace(/\s+/g, "").normalize("NFKC");
+  return normalize(left) === normalize(right);
+}
 
 // 利用者へ返す案内です。APIキーや内部の詳しい情報は、ここへ含めません。
 // codeは、うまくいかないときにどこで止まったかを見分けるための短い印です（秘密の情報は含みません）。
@@ -131,7 +190,37 @@ module.exports = async function handler(request, response) {
     return response.status(413).json({ message: MESSAGES.tooLarge, code: "AI-SIZE" });
   }
 
+  // 要約を選んでいるときは、読み取りと要約を1回の呼び出しでまとめて行います。
+  const action = SUMMARY_ACTIONS.includes(body?.action) ? body.action : "";
+
   try {
+    if (action) {
+      const { text, model, modelVersion } = await generateText(apiKey, [
+        { inline_data: { mime_type: mimeType, data: image } },
+        { text: `この画像の文章を読み取り、日本語で${action === "summarize-detail" ? "詳しめに" : ""}要約してください。` },
+      ], {
+        systemInstruction: buildImageSummaryInstruction(action),
+        // 詳細要約は、文章の要約（api/ai.js）と同じく少し深く考えさせます。
+        thinkingLevel: action === "summarize-detail" ? "medium" : "low",
+        priority: body?.modelPriority,
+      });
+
+      const { transcript, summary } = splitImageSummary(text || "");
+      if (!transcript) {
+        return response.status(502).json({ message: MESSAGES.empty, code: "AI-EMPTY" });
+      }
+
+      // 要約を受け取れなかったときは、読み取った文章だけを返します（画面側で、文章の要約をやり直します）。
+      // unchangedは、要約が読み取った文章と変わらなかったことを画面へ伝えるための印です。
+      return response.status(200).json({
+        text: transcript,
+        summary,
+        unchanged: Boolean(summary) && isSameText(summary, transcript),
+        model,
+        modelVersion,
+      });
+    }
+
     const { text, model, modelVersion } = await generateText(apiKey, [
       { text: OCR_PROMPT },
       { inline_data: { mime_type: mimeType, data: image } },

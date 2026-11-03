@@ -2042,18 +2042,25 @@ async function runOcr(file, speakAfterOcr = false) {
     return;
   }
 
-  const useAi = usesAiOcr();
+  // 要約・詳細要約を選んでいるときは、画像をAIへ直接渡し、読み取りと要約を1回でまとめて行います。
+  // 無料OCRの崩れた文字を要約すると、読み取りの誤りがそのまま要約の誤りになるためです。
+  const summaryMode = getImageSummaryMode();
+  const useAi = usesAiOcr() || Boolean(summaryMode);
 
   isOcrRunning = true;
   setProcessModeEnabled(false);
   // 読み上げ中に文章を入れ替えないよう、先に読み上げを止めます。
   if (isReading) stopSpeaking();
   statusText.classList.remove("error");
-  statusText.textContent = useAi ? "AIで文字を読み取っています…" : "画像から文字を読み取っています";
+  statusText.textContent = summaryMode
+    ? `AIで画像を読み取り、${summaryMode === "summarize-detail" ? "詳しく" : ""}要約しています…`
+    : useAi ? "AIで文字を読み取っています…" : "画像から文字を読み取っています";
 
   try {
-    const rawText = useAi ? await recognizeWithGeminiAndLogin(file) : await recognizeWithTesseract(file);
-    const recognizedText = cleanOcrText(rawText);
+    const recognized = useAi
+      ? await recognizeWithGeminiAndLogin(file, summaryMode)
+      : { text: await recognizeWithTesseract(file) };
+    const recognizedText = cleanOcrText(recognized.text);
 
     if (!recognizedText) {
       showError(useAi
@@ -2066,6 +2073,13 @@ async function runOcr(file, speakAfterOcr = false) {
     // 画像から読み取った文章であることと、どちらのOCRを使ったかを覚えます。
     markInputSource("image", useAi ? "ai" : "free");
     updateCharacterCount();
+
+    // 読み取りと一緒に受け取った要約を「AIの結果」へ入れます。
+    // 受け取れなかったときは、このあとの処理で、読み取った文章を改めて要約します。
+    const summaryText = summaryMode ? sanitizePastedText(recognized.summary || "") : "";
+    if (summaryText) {
+      acceptAiResult(summaryText, summaryMode, recognized.unchanged, recognized.model, recognizedText);
+    }
 
     if (speakAfterOcr) {
       // 画像 → 読み取り → （選んでいれば）AIの処理 → 読み上げ、の順に進みます。
@@ -2281,12 +2295,15 @@ async function withPasswordRetry(run) {
   }
 }
 
-function recognizeWithGeminiAndLogin(file) {
-  return withPasswordRetry(() => recognizeWithGemini(file));
+function recognizeWithGeminiAndLogin(file, summaryMode = "") {
+  return withPasswordRetry(() => recognizeWithGemini(file, summaryMode));
 }
 
-// Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
-async function recognizeWithGemini(file) {
+/**
+ * Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
+ * summaryMode（要約・詳細要約）を渡したときは、読み取った文章の要約も一緒に受け取ります。
+ */
+async function recognizeWithGemini(file, summaryMode = "") {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_OCR_TIMEOUT_MS);
 
@@ -2297,7 +2314,7 @@ async function recognizeWithGemini(file) {
       headers: { "Content-Type": "application/json" },
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
-      body: JSON.stringify({ ...payload, modelPriority: getModelPriority() }),
+      body: JSON.stringify({ ...payload, ...(summaryMode ? { action: summaryMode } : {}), modelPriority: getModelPriority() }),
       signal: controller.signal,
     });
 
@@ -2318,9 +2335,14 @@ async function recognizeWithGemini(file) {
       throw createOcrError(result.message || "AI OCRに失敗しました。通常OCRをお試しください。", result.code);
     }
 
-    // 読み取った文章と、使ったモデル名を受け取ります。
+    // 読み取った文章と、使ったモデル名（要約を頼んだときは要約も）を受け取ります。
     lastAiOcrModel = readModelLabel(result);
-    return result.text;
+    return {
+      text: result.text,
+      summary: typeof result.summary === "string" ? result.summary : "",
+      unchanged: Boolean(result.unchanged),
+      model: lastAiOcrModel,
+    };
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -2383,6 +2405,12 @@ function markInputSource(kind, ocrEngine = "") {
 
 function usesAiOcr() {
   return getProcessMode() === "ai-ocr";
+}
+
+// 画像を読み取るときに、要約まで一緒に頼むかどうかを返します（頼まない場合は空文字）。
+function getImageSummaryMode() {
+  const mode = getTextAiMode();
+  return mode === "summarize" || mode === "summarize-detail" ? mode : "";
 }
 
 // 読み上げる前に文章をAIで処理するかどうかを返します（しない場合は空文字）。
@@ -2588,13 +2616,7 @@ async function applyAiMode(mode) {
       return false;
     }
 
-    showAiResult(cleanedText, mode, processed.unchanged);
-    // 同じ文章・同じモードのときは、二度AIへ送らないように覚えておきます。
-    aiResultSource = sourceText;
-    aiResultModel = processed.model;
-    aiResultMode = mode;
-    aiResultLanguage = translateLanguage.value;
-    aiResultPriority = getModelPriority();
+    acceptAiResult(cleanedText, mode, processed.unchanged, processed.model, sourceText);
     return true;
   } catch (error) {
     console.warn("AIの処理に失敗しました。", error);
@@ -2605,6 +2627,17 @@ async function applyAiMode(mode) {
   } finally {
     setProcessModeEnabled(true);
   }
+}
+
+// AIの結果を表示し、どの文章をどの条件で処理したかを覚えます。
+// 同じ文章・同じモードのときは、二度AIへ送らないようにするためです。
+function acceptAiResult(text, mode, isUnchanged, model, sourceText) {
+  showAiResult(text, mode, isUnchanged);
+  aiResultSource = sourceText;
+  aiResultModel = model;
+  aiResultMode = mode;
+  aiResultLanguage = translateLanguage.value;
+  aiResultPriority = getModelPriority();
 }
 
 // すでに同じ文章を同じ条件で処理しているかどうかを調べます。
@@ -2620,6 +2653,8 @@ function hasFreshAiResult(mode) {
 async function applyAiModeAfterOcr() {
   const mode = getTextAiMode();
   if (!mode) return "skipped";
+  // 読み取りと一緒に要約まで済んでいるときは、もう一度AIへ送りません。
+  if (hasFreshAiResult(mode)) return "done";
   return (await applyAiMode(mode)) ? "done" : "failed";
 }
 
