@@ -17,6 +17,8 @@ const prevButton = document.getElementById("prev-button");
 const nextButton = document.getElementById("next-button");
 const stopButton = document.getElementById("stop-button");
 const downloadButton = document.getElementById("download-button");
+const audioTitleField = document.getElementById("audio-title-field");
+const audioTitleInput = document.getElementById("audio-title-input");
 const statusText = document.getElementById("status");
 const currentSection = document.getElementById("current-section");
 const currentTitleText = document.getElementById("current-title-text");
@@ -2696,6 +2698,9 @@ const AI_TTS_BUSY_RETRY_DELAYS_MS = [8000, 20000];
 // 音声は大きいため、覚えておく量に上限を決めて、古いものから忘れます。
 const AI_SPEECH_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 
+// 保存する音声のファイル名に使う、本のタイトルです。続けて同じ本を読むことが多いため、覚えておきます。
+const AUDIO_TITLE_STORAGE_KEY = "yomiage-audio-title";
+
 // 選べるAI音声です。増やすときは、api/tts.js の ALLOWED_VOICES にも追加してください。
 // 先頭の声が初期値になります。
 const AI_VOICES = [
@@ -3198,9 +3203,11 @@ function getAiAudioSeconds() {
 function updateDownloadButton() {
   if (aiAudioParts.length === 0) {
     downloadButton.hidden = true;
+    audioTitleField.hidden = true;
     return;
   }
 
+  audioTitleField.hidden = false;
   const seconds = getAiAudioSeconds();
   downloadButton.hidden = false;
   downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> <span class="nowrap">音声を保存</span>${seconds > 0 ? ` <span class="nowrap">（約${seconds}秒）</span>` : ""}`;
@@ -3212,8 +3219,25 @@ function clearAiAudio() {
   updateDownloadButton();
 }
 
-// 保存するファイル名です。日付と声の名前を入れて、あとから見分けられるようにします。
+// ファイル名に使えない文字（/ \\ : * ? " < > | など）を取り除きます。
+function sanitizeFileName(name) {
+  return String(name || "")
+    .replace(/[\u0000-\u001f\u007f/\\:*?"<>|]/g, " ")
+    .replace(/\.wav$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 100);
+}
+
+/**
+ * 保存するファイル名です。本のタイトルが入力されていれば、それをそのまま使います。
+ * 入力されていないときは、日付と声の名前を入れて、あとから見分けられるようにします。
+ */
 function buildAudioFileName() {
+  const title = sanitizeFileName(audioTitleInput.value);
+  if (title) return `${title}.wav`;
+
   const now = new Date();
   const pad = (value) => String(value).padStart(2, "0");
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
@@ -3308,6 +3332,26 @@ copyButton.addEventListener("click", () => copyTextToClipboard(textInput));
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", () => stopSpeaking());
 downloadButton.addEventListener("click", downloadAiAudio);
+
+// 入力した本のタイトルを覚えておき、次に開いたときも使えるようにします。
+try {
+  audioTitleInput.value = localStorage.getItem(AUDIO_TITLE_STORAGE_KEY) || "";
+} catch (error) {
+  // 保存できない環境（プライベートブラウズなど）では、覚えずに使います。
+}
+
+audioTitleInput.addEventListener("input", () => {
+  try {
+    localStorage.setItem(AUDIO_TITLE_STORAGE_KEY, audioTitleInput.value);
+  } catch (error) {
+    // 覚えられなくても、入力したタイトルはそのまま使えます。
+  }
+});
+
+// タイトルを入力してEnterを押したときも、そのまま保存できるようにします。
+audioTitleInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.isComposing) downloadAiAudio();
+});
 aiVoiceToggle.addEventListener("change", handleAiVoiceToggle);
 
 // ポップアップの枠外を押すと、閉じて読み上げを停止します。
