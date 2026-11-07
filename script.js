@@ -3079,9 +3079,10 @@ async function requestAiSpeech(text, voice, priority) {
       throw error;
     }
 
+    const audio = extractPcm(decodeBase64(result.audio));
     return {
-      pcm: decodeBase64(result.audio),
-      sampleRate: getAudioSampleRate(result.mimeType),
+      pcm: audio.pcm,
+      sampleRate: audio.sampleRate || getAudioSampleRate(result.mimeType),
       model: readModelLabel(result),
     };
   } finally {
@@ -3096,6 +3097,54 @@ function decodeBase64(base64) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function readAscii(bytes, offset, length) {
+  return String.fromCharCode(...bytes.subarray(offset, offset + length));
+}
+
+/**
+ * 新しい音声モデルは、生の音声データ（PCM）ではなく、見出し付きのWAVを返すことがあります。
+ * そのまま扱うと、見出しや末尾の付加情報（AIで作った音声であることを示すメタデータなど）まで
+ * 音として鳴ってしまい、区切り（ページ）の変わり目に大きな雑音が入ります。
+ * WAVだったときは、音声の本体（dataの部分）だけを取り出し、1秒あたりの細かさも見出しから読み取ります。
+ */
+function extractPcm(bytes) {
+  const isWav = bytes.length >= 12
+    && readAscii(bytes, 0, 4) === "RIFF"
+    && readAscii(bytes, 8, 4) === "WAVE";
+  if (!isWav) return { pcm: bytes, sampleRate: 0 };
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let sampleRate = 0;
+  let offset = 12;
+
+  while (offset + 8 <= bytes.length) {
+    const id = readAscii(bytes, offset, 4);
+    const size = view.getUint32(offset + 4, true);
+    const start = offset + 8;
+
+    if (id === "fmt " && start + 8 <= bytes.length) {
+      sampleRate = view.getUint32(start + 4, true);
+    }
+
+    if (id === "data") {
+      // 大きさが書かれていない（途中で切れた）場合も、ある分だけを使います。
+      let end = Math.min(start + size, bytes.length);
+      // 16ビットの音声なので、2バイト単位にそろえます（ずれると全体が雑音になるため）。
+      end -= (end - start) % 2;
+      return {
+        pcm: bytes.slice(start, end),
+        sampleRate: sampleRate >= 8000 && sampleRate <= 48000 ? sampleRate : 0,
+      };
+    }
+
+    // 区切りは2バイト単位にそろえる決まりです。
+    offset = start + size + (size % 2);
+  }
+
+  // 音声の本体が見つからないときは、見出しだけ外して使います。
+  return { pcm: bytes.slice(44), sampleRate: 0 };
 }
 
 // 音声の形式（例: audio/L16;codec=pcm;rate=24000）から、1秒あたりの細かさを読み取ります。
