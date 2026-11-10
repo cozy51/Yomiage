@@ -1782,14 +1782,68 @@ function joinWrappedLines(text, { joinAcrossEmptyLines = true } = {}) {
   return joinedLines.join("\n");
 }
 
+// Obsidianの内部リンク（[[ノート名]]、[[ノート名|表示名]]、埋め込みの![[画像.png]]）です。
+const WIKI_LINK_PATTERN = /(!?)\[\[([^\[\]\n]*)\]\]/g;
+// 行のはじめの箇条書きの記号です。
+const NOTE_LINE_MARKER_PATTERN = /^(?:[-–—*+•・●○◆■□]\s*)?/;
+// 「関連ノート:」のような、リンクの一覧の前に付く短い見出しです。
+const NOTE_LINE_LABEL_PATTERN = /^[^:：。、\n]{1,20}[:：]\s*/;
+// 「フォルダ/ファイル名」の形をした、ノートのファイルの場所です。
+// フォルダ名は空白を含まず、ファイル名は文の終わりの「。」を含まないものだけをノートの場所とみなします。
+// 「A/B」のような短い表記を誤って消さないよう、ファイル名は4文字以上とします。
+const NOTE_PATH_PATTERN = /^(?:[^\s\/、。,，:：]+\/)+[^\/。\n]{4,}$/u;
+
+/**
+ * Obsidianの内部リンクを、表示名だけ残した形に置き換えます。
+ * 表示名（|のあと）があればそれを、なければフォルダと拡張子・見出し指定を除いたノート名を残します。
+ * 画像などの埋め込み（![[...]]）は、読み上げても意味がないため取り除きます。
+ */
+function replaceWikiLinks(text) {
+  return text.replace(WIKI_LINK_PATTERN, (match, embed, inner) => {
+    if (embed) return "";
+    const [target, alias] = inner.split("|");
+    if (alias !== undefined && alias.trim() !== "") return alias.trim();
+    return target.split("#")[0].split("/").pop().replace(/\.md$/i, "").trim();
+  });
+}
+
+/**
+ * 行が、参照先のノートのファイル名を並べただけの行（例：関連ノート: Knowledge/…、Knowledge/…）かどうかを調べます。
+ * Obsidianから文章をコピーすると、内部リンクはファイルの場所やファイル名のまま貼り付けられ、
+ * 長いファイル名がそのまま読み上げられて聞き取りにくくなります。
+ */
+function isNoteLinkListLine(line) {
+  const body = line.replace(NOTE_LINE_MARKER_PATTERN, "").replace(NOTE_LINE_LABEL_PATTERN, "");
+  if (body === "") return false;
+
+  // [[...]]で書かれたリンクだけが並ぶ行です（区切りの読点・カンマ・空白だけが残ります）。
+  if (body.includes("[[") && /^[\s、,，]*$/.test(body.replace(WIKI_LINK_PATTERN, ""))) return true;
+
+  // 表示された文章からコピーした「フォルダ/ファイル名」が読点で並ぶ行です。
+  // ファイル名に「(Inukai,K.)」のような半角カンマが入るため、区切りは読点だけで判断します。
+  const items = body.split(/[、，]/).map((item) => item.trim()).filter((item) => item !== "");
+  return items.length > 0 && items.every((item) => NOTE_PATH_PATTERN.test(item));
+}
+
+/**
+ * 参照先のノートのファイル名を並べただけの行を取り除き、文中の内部リンクは表示名だけを残します。
+ */
+function removeNoteLinks(text) {
+  return text
+    .split("\n")
+    .filter((line) => !isNoteLinkListLine(line.trim()))
+    .map(replaceWikiLinks)
+    .join("\n");
+}
+
 /**
  * 貼り付ける文章を整形します。
  * HTMLの文字参照を元の文字に戻し、絵文字・URL・%エンコード文字列・Markdown記法を削除し、
- * 空白やタブしか含まない行を取り除きます。
+ * 参照先のノートのファイル名だけを並べた行と、空白やタブしか含まない行を取り除きます。
  */
 function sanitizePastedText(text) {
-  return stripMarkdownNoise(removeUrlsAndPercentEncoding(removeEmojis(decodeCharacterReferences(text))))
-    .replace(/\r\n?|\u2028|\u2029/g, "\n")
+  return removeNoteLinks(stripMarkdownNoise(removeUrlsAndPercentEncoding(removeEmojis(decodeCharacterReferences(text))))
+    .replace(/\r\n?|\u2028|\u2029/g, "\n"))
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
@@ -1798,8 +1852,10 @@ function sanitizePastedText(text) {
 
 // 貼り付けた文章とクリップボードから取り込んだ文章を、そのまま読み上げられる形に整えます。
 // PDFなどからコピーした文章は表示の幅で改行されているため、その改行をつなぎ直してから整形します。
+// 参照先のノートの一覧の行が前の行につながらないよう、つなぎ直す前に取り除きます。
 function cleanPastedText(text) {
-  return sanitizePastedText(joinWrappedLines(text, { joinAcrossEmptyLines: false }));
+  const withoutNoteLinks = removeNoteLinks(text.replace(/\r\n?|\u2028|\u2029/g, "\n"));
+  return sanitizePastedText(joinWrappedLines(withoutNoteLinks, { joinAcrossEmptyLines: false }));
 }
 
 // コピーできたことを知らせる表示は、少しの間だけ出して元へ戻します。
