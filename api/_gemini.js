@@ -18,6 +18,10 @@ const DEFAULT_GEMINI_MODEL = "gemini-flash-lite-latest";
 // 「廉価モデル優先」のときは、廉価モデルが混み合っている・利用上限に達した（429・503など）ときの代わりに使います。
 // 利用上限はモデルごとに別々のため、別のモデルに切り替えると続けて使えることが多くなります。
 const STANDARD_GEMINI_MODEL = "gemini-flash-latest";
+// 最も品質の高い「Hydrogenモデル」（Gemini 4 Hydrogen）です。画面で「Hydrogen優先」を選んだときに最初に使います。
+// 料金は通常モデルより高めです。混み合っている・利用上限に達したときは、通常モデルへ切り替えます。
+// 「-latest」の別名がないため、版の名前をそのまま書いています。使えなくなったときは環境変数 GEMINI_HYDROGEN_MODEL で差し替えられます。
+const HYDROGEN_GEMINI_MODEL = "gemini-4-hydrogen";
 // 音声を作るモデルには「-latest」の別名がないため、そのAPIキーで使えるモデルの一覧から最新のものを自動で選びます。
 // 下の2つは、一覧を取得できなかったときにだけ使う予備の名前です。
 // 環境変数 GEMINI_TTS_MODEL を設定した場合は、廉価モデル優先で最初に使う音声モデルとして、そちらが優先されます。
@@ -27,8 +31,8 @@ const STANDARD_GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
 const TTS_MODEL_CACHE_MS = 6 * 60 * 60 * 1000;
 // 一覧を取得できなかったときは、少し間をあけてから取り直します。
 const TTS_MODEL_RETRY_MS = 5 * 60 * 1000;
-// 画面で選べる「どちらのモデルを先に使うか」です。economy = 廉価モデル優先（既定）、standard = 通常モデル優先。
-const MODEL_PRIORITIES = ["economy", "standard"];
+// 画面で選べる「どのモデルを先に使うか」です。economy = 廉価モデル優先（既定）、standard = 通常モデル優先、hydrogen = Hydrogen優先。
+const MODEL_PRIORITIES = ["economy", "standard", "hydrogen"];
 const DEFAULT_MODEL_PRIORITY = "economy";
 // Gemini 3.8 以降のモデルです。temperature が使えず、考える深さ（thinkingLevel）や話し方の指示を使います。
 // 「-latest」のように名前から世代が分からないモデルは、新しい世代として扱い、受け付けなければ別の渡し方で試します。
@@ -63,6 +67,12 @@ function getGeminiModel() {
   return GEMINI_MODEL_PATTERN.test(model) ? model : DEFAULT_GEMINI_MODEL;
 }
 
+// Hydrogenモデルの名前です。環境変数の値が使えない形のときは、既定の名前に戻します。
+function getHydrogenModel() {
+  const model = (process.env.GEMINI_HYDROGEN_MODEL || "").trim();
+  return GEMINI_MODEL_PATTERN.test(model) ? model : HYDROGEN_GEMINI_MODEL;
+}
+
 // 画面から届いた値を、使える優先順位に直します。分からない値のときは既定（廉価モデル優先）にします。
 function normalizeModelPriority(priority) {
   return MODEL_PRIORITIES.includes(priority) ? priority : DEFAULT_MODEL_PRIORITY;
@@ -70,9 +80,12 @@ function normalizeModelPriority(priority) {
 
 // 使うモデルの順番です。最初に使うモデルのあとに、代わりのモデルを並べます。
 // 廉価モデルは環境変数（GEMINI_MODEL / GEMINI_TTS_MODEL）で差し替えられます。
+// Hydrogen優先のときは、Hydrogen → 通常モデルの順にします（品質を保つため、廉価モデルへは切り替えません）。
 function getTextModels(priority) {
+  const normalized = normalizeModelPriority(priority);
+  if (normalized === "hydrogen") return [...new Set([getHydrogenModel(), STANDARD_GEMINI_MODEL])];
   const models = [getGeminiModel(), STANDARD_GEMINI_MODEL];
-  if (normalizeModelPriority(priority) === "standard") models.reverse();
+  if (normalized === "standard") models.reverse();
   return [...new Set(models)];
 }
 
@@ -143,7 +156,8 @@ async function getTtsModels(apiKey, priority, options = {}) {
   const envModel = (process.env.GEMINI_TTS_MODEL || "").trim();
   const economy = GEMINI_MODEL_PATTERN.test(envModel) ? envModel : resolved.economy;
   const models = [economy, resolved.standard];
-  if (normalizeModelPriority(priority) === "standard") models.reverse();
+  // Hydrogenには音声モデルがないため、Hydrogen優先のときは通常モデル優先と同じ音声モデルを使います。
+  if (normalizeModelPriority(priority) !== "economy") models.reverse();
   return [...new Set(models)];
 }
 
