@@ -2414,10 +2414,10 @@ const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
 const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "summarize-detail", "translate"];
 const AI_TEXT_MODES = ["summarize", "summarize-detail", "translate"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
-// AIのどちらのモデルを先に使うか（economy = 廉価モデル優先、standard = 通常モデル優先）を保存する場所です。
+// AIのどのモデルを先に使うか（economy = 廉価モデル優先、standard = 通常モデル優先、hydrogen = Hydrogen優先）を保存する場所です。
 const MODEL_PRIORITY_STORAGE_KEY = "yomiage-model-priority";
-const MODEL_PRIORITIES = ["economy", "standard"];
-const MODEL_PRIORITY_LABELS = { economy: "廉価モデル優先", standard: "通常モデル優先" };
+const MODEL_PRIORITIES = ["economy", "standard", "hydrogen"];
+const MODEL_PRIORITY_LABELS = { economy: "廉価モデル優先", standard: "通常モデル優先", hydrogen: "Hydrogen優先" };
 const modelPriorityInputs = [...document.querySelectorAll('input[name="model-priority"]')];
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
@@ -3446,6 +3446,7 @@ window.addEventListener("beforeunload", () => synthesis.cancel());
 let modelLists = {
   economy: { text: ["gemini-flash-lite-latest", "gemini-flash-latest"], tts: [AUTO_MODEL_LABEL] },
   standard: { text: ["gemini-flash-latest", "gemini-flash-lite-latest"], tts: [AUTO_MODEL_LABEL] },
+  hydrogen: { text: ["gemini-4-hydrogen", "gemini-flash-latest"], tts: [AUTO_MODEL_LABEL] },
 };
 
 function renderModelInfo() {

@@ -476,10 +476,10 @@ select:focus {
   text-align: center;
 }
 
-/* AIのどちらのモデルを先に使うかの選択です。2つを横に並べます。 */
+/* AIのどのモデルを先に使うかの選択です。3つを横に並べます（狭い画面では縦に並べます）。 */
 .model-priority {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 26px 0 0;
   padding: 8px 12px 12px;
@@ -531,6 +531,12 @@ select:focus {
 .model-priority-note {
   color: var(--muted);
   font-size: .74rem;
+}
+
+@media (max-width: 560px) {
+  .model-priority {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* 選択のすぐ下に続くため、設定欄との間を詰めます。 */

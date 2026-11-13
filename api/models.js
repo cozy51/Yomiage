@@ -5,7 +5,7 @@
  *
  * モデル名は秘密の情報ではないため、パスワード認証なしで返します（APIキーは返しません）。
  * 環境変数 GEMINI_MODEL / GEMINI_TTS_MODEL を設定している場合は、その値を返します。
- * 「廉価モデル優先」「通常モデル優先」のそれぞれで、使う順番どおりにモデル名を返します。
+ * 「廉価モデル優先」「通常モデル優先」「Hydrogen優先」のそれぞれで、使う順番どおりにモデル名を返します。
  * 2番目は、混み合っているときや利用上限に達したときに切り替える「代わりのモデル」です（ないときはありません）。
  * 音声モデルは、そのAPIキーで使えるモデルの一覧から自動で選んだ名前です（一覧はしばらく覚えておくため、毎回は問い合わせません）。
  */
@@ -21,5 +21,9 @@ module.exports = async function handler(request, response) {
   response.setHeader("Cache-Control", "no-store");
   const apiKey = process.env.GEMINI_API_KEY;
   const describe = async (priority) => ({ text: getTextModels(priority), tts: await getTtsModels(apiKey, priority) });
-  return response.status(200).json({ economy: await describe("economy"), standard: await describe("standard") });
+  return response.status(200).json({
+    economy: await describe("economy"),
+    standard: await describe("standard"),
+    hydrogen: await describe("hydrogen"),
+  });
 };

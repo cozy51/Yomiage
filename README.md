@@ -273,6 +273,7 @@ Gemini側の詳しい理由は、Vercelの `Deployments` → 対象のデプロ�
 | --- | --- | --- |
 | 廉価モデル | `gemini-flash-lite-latest`（最新のFlash-Lite） | `api/_gemini.js` の `DEFAULT_GEMINI_MODEL` |
 | 通常モデル | `gemini-flash-latest`（最新のFlash） | `api/_gemini.js` の `STANDARD_GEMINI_MODEL` |
+| Hydrogenモデル | `gemini-4-hydrogen`（Gemini 4 Hydrogen。「-latest」の別名がないため版の名前を指定） | `api/_gemini.js` の `HYDROGEN_GEMINI_MODEL` |
 
 音声を作るモデルには「-latest」の別名がないため、そのAPIキーで使えるモデルの一覧をGeminiへ問い合わせ、最新のものを自動で選びます（`api/_gemini.js` の `pickTtsModels`）。
 
@@ -291,17 +292,20 @@ AIが文章を返さなかった（空の返事）ときも、残り時間があ
 
 - `GEMINI_MODEL`：廉価モデル（OCR・要約・翻訳）
 - `GEMINI_TTS_MODEL`：廉価モデル優先で最初に使う音声モデル
+- `GEMINI_HYDROGEN_MODEL`：Hydrogen優先で最初に使うモデル（OCR・要約・翻訳）
 
-### AIモデルの優先（通常モデル優先／廉価モデル優先）
+### AIモデルの優先（廉価モデル優先／通常モデル優先／Hydrogen優先）
 
-設定欄の上の「AIモデル」で、どちらのモデルを先に使うかを選べます（左が「廉価モデル優先」、右が「通常モデル優先」）。選んだ内容はブラウザに保存され、次に開いたときもそのまま使えます（初期値は「廉価モデル優先」）。
+設定欄の上の「AIモデル」で、どのモデルを先に使うかを選べます（左から「廉価モデル優先」「通常モデル優先」「Hydrogen優先」。狭い画面では縦に並びます）。選んだ内容はブラウザに保存され、次に開いたときもそのまま使えます（初期値は「廉価モデル優先」）。
 
 | 選択 | 最初に使うモデル | 混み合っている・上限に達したときの切替先 |
 | --- | --- | --- |
 | 廉価モデル優先（安価・混雑に強い） | `gemini-flash-lite-latest` ／ 音声 廉価の音声モデル（自動） | `gemini-flash-latest` ／ 音声 最新のFlash音声モデル（自動） |
 | 通常モデル優先（高品質・料金高め） | `gemini-flash-latest` ／ 音声 最新のFlash音声モデル（自動） | `gemini-flash-lite-latest` ／ 音声 廉価の音声モデル（自動） |
+| Hydrogen優先（最高品質・料金最も高い） | `gemini-4-hydrogen` ／ 音声 最新のFlash音声モデル（自動） | `gemini-flash-latest` ／ 音声 廉価の音声モデル（自動） |
 
-画面は選んだ内容を `modelPriority`（`standard` / `economy`）として `/api/ocr`・`/api/ai`・`/api/tts` へ送り、サーバー側（`api/_gemini.js` の `getTextModels` / `getTtsModels`）が使う順番を決めます。通常モデルは `STANDARD_GEMINI_MODEL` で設定しています（音声モデルは自動で選びます）。切り替えると、要約・翻訳の結果やAI音声は、選んだモデルで作り直します。
+Hydrogen（Gemini 4 Hydrogen）には音声モデルがないため、Hydrogen優先の音声は通常モデル優先と同じものを使います。Hydrogenは料金が高め（Flashより高い）のため、必要なときだけ選んでください。
+画面は選んだ内容を `modelPriority`（`economy` / `standard` / `hydrogen`）として `/api/ocr`・`/api/ai`・`/api/tts` へ送り、サーバー側（`api/_gemini.js` の `getTextModels` / `getTtsModels`）が使う順番を決めます。通常モデルは `STANDARD_GEMINI_MODEL` で設定しています（音声モデルは自動で選びます）。切り替えると、要約・翻訳の結果やAI音声は、選んだモデルで作り直します。
 
 読み上げのたびに、状態表示（「読み上げが完了しました」など）のすぐ下へ、**実際に使ったモデル**を小さく表示します（例：「使用モデル　要約：gemini-flash-lite-latest（gemini-3.5-flash-lite）／音声：gemini-3.1-flash-tts-preview」）。「-latest」を使ったときは、実際に使われた版をかっこで添えます（Geminiの返事の `modelVersion`）。混み合っていて代わりのモデルへ切り替えたときは「（混雑のため切替）」と添えます。AIを使わなかったときは表示しません。
 
