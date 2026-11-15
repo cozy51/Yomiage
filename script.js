@@ -3259,7 +3259,8 @@ function updateDownloadButton() {
 
   const seconds = getAiAudioSeconds();
   downloadButton.hidden = false;
-  downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> <span class="nowrap">音声を保存</span>${seconds > 0 ? ` <span class="nowrap">（約${seconds}秒）</span>` : ""}`;
+  downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> 保存${seconds > 0 ? ` <span class="download-button-seconds">${seconds}秒</span>` : ""}`;
+  downloadButton.setAttribute("aria-label", seconds > 0 ? `AI音声を保存（約${seconds}秒）` : "AI音声を保存");
 }
 
 // 新しく読み上げ始めたときや、文章を消したときは、前に作った音声を保存できなくします。

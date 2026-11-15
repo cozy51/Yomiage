@@ -48,10 +48,15 @@
         <span aria-hidden="true">📋</span> <span class="nowrap">クリップボードの文章・画像を</span><span class="nowrap">読み上げ</span>
       </button>
 
-      <label class="ai-voice-toggle" for="ai-voice-toggle">
-        <input type="checkbox" id="ai-voice-toggle">
-        <span class="ai-voice-toggle-text">✨ AI音声で読み上げ<span class="ai-voice-toggle-price">（有料）</span></span>
-      </label>
+      <div class="ai-voice-row">
+        <label class="ai-voice-toggle" for="ai-voice-toggle">
+          <input type="checkbox" id="ai-voice-toggle">
+          <span class="ai-voice-toggle-text">✨ AI音声で読み上げ<span class="ai-voice-toggle-price">（有料）</span></span>
+        </label>
+        <button id="download-button" class="download-button" type="button" title="AI音声をWAVで保存" aria-label="AI音声を保存" hidden>
+          <span aria-hidden="true">⬇</span> 保存
+        </button>
+      </div>
 
       <p id="status" class="status" role="status" aria-live="polite">待機中</p>
       <p id="used-model" class="used-model" hidden></p>
@@ -202,12 +207,6 @@
           <input id="rate-input" type="range" min="0.5" max="2" step="0.1" value="2" aria-valuetext="2.0倍">
           <div class="range-labels" aria-hidden="true"><span>0.5倍</span><span>2.0倍</span></div>
         </div>
-      </div>
-
-      <div class="download-controls">
-        <button id="download-button" class="button button-secondary" type="button" hidden>
-          <span aria-hidden="true">⬇</span> <span class="nowrap">音声を保存</span>
-        </button>
       </div>
 
       <div id="ocr-progress" class="ocr-progress" hidden>
