@@ -3260,13 +3260,18 @@ function getAiAudioSeconds() {
 }
 
 function updateDownloadButton() {
+  // ボタンは常に表示し、保存できないあいだは押せない見た目にします。
   if (!isAiAudioComplete || aiAudioParts.length === 0) {
-    downloadButton.hidden = true;
+    downloadButton.disabled = true;
+    downloadButton.title = "AI音声で最後まで読み上げると保存できます";
+    downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> 保存`;
+    downloadButton.setAttribute("aria-label", "AI音声を保存（まだ保存できません）");
     return;
   }
 
   const seconds = getAiAudioSeconds();
-  downloadButton.hidden = false;
+  downloadButton.disabled = false;
+  downloadButton.title = "AI音声をWAVで保存";
   downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> 保存${seconds > 0 ? ` <span class="download-button-seconds">${seconds}秒</span>` : ""}`;
   downloadButton.setAttribute("aria-label", seconds > 0 ? `AI音声を保存（約${seconds}秒）` : "AI音声を保存");
 }
