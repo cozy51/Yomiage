@@ -1430,35 +1430,39 @@ function readModelLabel(result) {
 }
 
 /**
- * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名を小さく表示します。
- * 混み合っていて代わりのモデルへ切り替えたときは、そのことも添えます。
+ * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名だけを大きく表示します。
+ * 「-latest」のように実際の版を添えた名前（例：gemini-flash-latest（gemini-3.8-flash））は、実際の版の名前だけを出します。
+ * 混み合っていて代わりのモデルへ切り替えたときは、そのことも短く添えます。
  * AIを使っていないときは表示しません。
  */
 function updateUsedModel() {
   const usedModelText = document.getElementById("used-model");
   const primaryTextModel = document.getElementById("model-text").textContent;
   const primaryTtsModel = document.getElementById("model-tts").textContent;
-  // 「-latest」のように実際の版を添えた名前（例：gemini-flash-lite-latest（gemini-3.5-flash-lite））は、添えた部分を除いて比べます。
+  // 名前を比べるときは、添えた実際の版の部分を除いて比べます。
   // 音声モデルの名前を取得できず「自動（最新）」と表示しているときは、切り替えたかどうかは添えません。
-  const describe = (model, primary) => (primary && primary !== AUTO_MODEL_LABEL && model.split("（")[0] !== primary
-    ? `${model}（混雑のため切替）` : model);
-  const parts = [];
+  const describe = (model, primary) => {
+    const [base, version] = model.split("（");
+    const name = version ? version.replace(/）$/, "") : base;
+    return primary && primary !== AUTO_MODEL_LABEL && base !== primary ? `${name}（混雑のため切替）` : name;
+  };
+  const names = new Set();
 
   const aiMode = getTextAiMode();
   const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
   if (usesAiResult && aiResultModel) {
-    const label = aiMode === "translate" ? "翻訳" : aiMode === "summarize-detail" ? "詳細要約" : "要約";
-    parts.push(`${label}：${describe(aiResultModel, primaryTextModel)}`);
+    names.add(describe(aiResultModel, primaryTextModel));
   } else if (inputSourceKind === "image" && ocrEngineUsed === "ai" && ocrModelUsed) {
-    parts.push(`読取：${describe(ocrModelUsed, primaryTextModel)}`);
+    names.add(describe(ocrModelUsed, primaryTextModel));
   }
 
-  if (isAiPlayback && aiTtsModelsUsed.size) {
-    parts.push(`音声：${[...aiTtsModelsUsed].map((model) => describe(model, primaryTtsModel)).join("・")}`);
+  if (isAiPlayback) {
+    aiTtsModelsUsed.forEach((model) => names.add(describe(model, primaryTtsModel)));
   }
 
-  usedModelText.textContent = parts.length ? `使用モデル　${parts.join("／")}` : "";
-  usedModelText.hidden = !parts.length;
+  usedModelText.textContent = [...names].join(" ・ ");
+  usedModelText.title = names.size ? "使用したAIモデル" : "";
+  usedModelText.hidden = !names.size;
 }
 
 /**
