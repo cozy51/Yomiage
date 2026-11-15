@@ -212,13 +212,23 @@ h1 {
 }
 
 /* AI音声で読み上げるかどうかの切り替えです。料金がかかるため、ひと目で分かるようにします。 */
+/* 切り替えと「保存」ボタンを1行に並べます。全体の幅は切り替えだけのときと同じです。 */
+.ai-voice-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  width: calc(100% - 28px);
+  margin: 0 auto 8px;
+}
+
 .ai-voice-toggle {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  width: calc(100% - 28px);
-  margin: 0 auto 8px;
+  min-width: 0;
+  margin: 0;
   padding: 7px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -251,6 +261,60 @@ h1 {
 
 .ai-voice-toggle-price {
   font-weight: 400;
+  white-space: nowrap;
+}
+
+/* AI音声を保存するボタンです。切り替えの右に小さく置きます。 */
+.download-button {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border: 1px solid #7c3aed;
+  border-radius: 999px;
+  cursor: pointer;
+  background: #fff;
+  color: #6d28d9;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background-color .15s;
+}
+
+.download-button[hidden] {
+  display: none;
+}
+
+.download-button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.download-button-seconds {
+  font-weight: 400;
+}
+
+@media (hover: hover) {
+  .download-button:hover {
+    background: #f5f3ff;
+  }
+}
+
+/* 狭い画面では、秒数を下の行に回して横幅を抑えます。 */
+@media (max-width: 480px) {
+  .ai-voice-toggle {
+    gap: 6px;
+    padding: 7px 8px;
+  }
+
+  .download-button {
+    padding: 4px 10px;
+    border-radius: 12px;
+  }
+
+  .download-button-seconds {
+    display: block;
+  }
 }
 
 /* 入力欄の文章をまるごとコピーするボタンです。 */
@@ -624,12 +688,6 @@ input[type="range"] {
   min-height: 42px;
   padding: 0 10px;
   white-space: nowrap;
-}
-
-.download-controls {
-  display: flex;
-  justify-content: center;
-  margin-top: 28px;
 }
 
 /* 画面の一番下に、使用しているAIモデルを小さく表示します。 */
