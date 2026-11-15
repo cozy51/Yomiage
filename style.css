@@ -281,8 +281,13 @@ h1 {
   transition: background-color .15s;
 }
 
-.download-button[hidden] {
-  display: none;
+/* 保存できないあいだは、灰色の点線にして押せないことが分かるようにします。 */
+.download-button:disabled {
+  border-style: dashed;
+  border-color: var(--border);
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .download-button:focus-visible {
@@ -295,7 +300,7 @@ h1 {
 }
 
 @media (hover: hover) {
-  .download-button:hover {
+  .download-button:not(:disabled):hover {
     background: #f5f3ff;
   }
 }

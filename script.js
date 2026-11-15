@@ -2783,6 +2783,8 @@ let aiTtsModelsUsed = new Set();
 let aiAudioUrl = "";
 // 保存用に、作った音声（PCM）を読み上げた順にためます。
 let aiAudioParts = [];
+// 最後の区切りまで音声を作り終えたかどうかです。途中の音声は短いファイルになるため保存させません。
+let isAiAudioComplete = false;
 let aiSampleRate = AI_TTS_DEFAULT_SAMPLE_RATE;
 let isAudioUnlocked = false;
 const aiSpeechCache = new Map();
@@ -2917,6 +2919,8 @@ async function startAiSpeaking(text) {
   isAiPlayback = true;
   hasSpokenAnything = false;
   aiAudioParts = [];
+  isAiAudioComplete = false;
+  updateDownloadButton();
   aiVoiceUsed = getSelectedAiVoice();
   aiTtsModelsUsed = new Set();
   // AI音声では、最後のひと言（終了アナウンス）は読み上げません。
@@ -2974,7 +2978,11 @@ async function playAiChunk(activeSessionId, index) {
   // 保存できるよう、読み上げた音声を順番にためます。
   aiAudioParts.push(speech.pcm);
   aiSampleRate = speech.sampleRate;
-  updateDownloadButton();
+  // 最後の区切りまで作り終えたら、保存できるようにします。
+  if (index === chunks.length - 1) {
+    isAiAudioComplete = true;
+    updateDownloadButton();
+  }
 
   // 次の音声は、いまの音声を流しているあいだに作っておきます。
   if (index + 1 < chunks.length) {
@@ -3252,13 +3260,18 @@ function getAiAudioSeconds() {
 }
 
 function updateDownloadButton() {
-  if (aiAudioParts.length === 0) {
-    downloadButton.hidden = true;
+  // ボタンは常に表示し、保存できないあいだは押せない見た目にします。
+  if (!isAiAudioComplete || aiAudioParts.length === 0) {
+    downloadButton.disabled = true;
+    downloadButton.title = "AI音声で最後まで読み上げると保存できます";
+    downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> 保存`;
+    downloadButton.setAttribute("aria-label", "AI音声を保存（まだ保存できません）");
     return;
   }
 
   const seconds = getAiAudioSeconds();
-  downloadButton.hidden = false;
+  downloadButton.disabled = false;
+  downloadButton.title = "AI音声をWAVで保存";
   downloadButton.innerHTML = `<span aria-hidden="true">⬇</span> 保存${seconds > 0 ? ` <span class="download-button-seconds">${seconds}秒</span>` : ""}`;
   downloadButton.setAttribute("aria-label", seconds > 0 ? `AI音声を保存（約${seconds}秒）` : "AI音声を保存");
 }
@@ -3266,6 +3279,7 @@ function updateDownloadButton() {
 // 新しく読み上げ始めたときや、文章を消したときは、前に作った音声を保存できなくします。
 function clearAiAudio() {
   aiAudioParts = [];
+  isAiAudioComplete = false;
   updateDownloadButton();
 }
 
@@ -3279,11 +3293,11 @@ function buildAudioFileName() {
 
 /**
  * 作った音声を1つのWAVファイルにまとめて保存します。
- * 途中で止めた場合も、そこまでに作った音声を保存できます。
+ * 最後まで作り終えた音声だけを保存します（途中までだと短いファイルになるため）。
  */
 function downloadAiAudio() {
-  if (aiAudioParts.length === 0) {
-    showError("保存できる音声がありません。AI音声で読み上げてからお試しください。");
+  if (!isAiAudioComplete || aiAudioParts.length === 0) {
+    showError("保存できる音声がありません。AI音声で最後まで読み上げてからお試しください。");
     return;
   }
 
