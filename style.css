@@ -806,11 +806,17 @@ input[type="range"] {
   font-size: .9rem;
 }
 
-/* 直前の読み上げで、実際に使ったAIのモデル名を小さく表示します。 */
+/* 直前の読み上げで、実際に使ったAIのモデル名だけを、目に留まりやすい大きさで表示します。 */
 .used-model {
-  margin: -10px 0 14px;
-  color: var(--muted);
-  font-size: .72rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: -6px auto 14px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 1rem;
+  font-weight: 700;
   text-align: center;
   overflow-wrap: anywhere;
 }
