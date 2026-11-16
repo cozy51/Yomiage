@@ -1854,11 +1854,121 @@ function sanitizePastedText(text) {
     .join("\n");
 }
 
+// コードのかたまりの直前に付く見出しの行です（例：Python、JavaScript、コードの出力）。
+// 言語名のような短い英数字の行か、「コード」「出力」「実行結果」を含む短い行だけを見出しとみなします。
+const CODE_LABEL_PATTERN = /^(?:[A-Za-z][A-Za-z0-9+#.\- ]{0,19}|[^。．！？!?]{0,12}(?:コード|出力|実行結果)[^。．！？!?]{0,12})$/;
+// チャット画面のコードの表示・非表示を切り替えるボタンの文字です。コピーすると文章に混ざります。
+const CODE_TOGGLE_LABEL_PATTERN = /^コードを(?:表示|非表示|隠す|折りたたむ)$/;
+// Markdownのコードのかたまりの始まりの行です（``` または ~~~）。
+const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
+
+/**
+ * 取り除いたコードのかたまりの直前にある見出しの行（空行は飛ばします）を取り除きます。
+ */
+function removeCodeLabelBefore(lines) {
+  let index = lines.length - 1;
+  while (index >= 0 && lines[index].trim() === "") index -= 1;
+  if (index >= 0 && CODE_LABEL_PATTERN.test(lines[index].trim())) lines.splice(index);
+}
+
+/**
+ * Markdownのコードのかたまり（```で囲まれた部分）を、直前の見出しの行ごと取り除きます。
+ * 閉じる行がないときは、本文を消しすぎないよう、囲みの行だけを取り除きます。
+ */
+function removeFencedCodeBlocks(text) {
+  const lines = text.split("\n");
+  const result = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = lines[index].match(CODE_FENCE_PATTERN);
+    if (!opening) {
+      result.push(lines[index]);
+      continue;
+    }
+
+    const fence = opening[1];
+    const closingPattern = new RegExp(`^\\s*${fence[0] === "`" ? "`" : "~"}{${fence.length},}\\s*$`);
+    const closingIndex = lines.findIndex((line, lineIndex) => lineIndex > index && closingPattern.test(line));
+    if (closingIndex === -1) continue;
+
+    removeCodeLabelBefore(result);
+    index = closingIndex;
+  }
+
+  return result.join("\n");
+}
+
+// 比べるときは、行の前後の空白と、HTMLの改行しない空白の違いを無視します。
+function normalizeCodeLine(line) {
+  return line.replace(/ /g, " ").trim();
+}
+
+/**
+ * コピー元のHTMLに含まれるコードのかたまり（<pre>）の文字を、空行を除いた行の並びとして取り出します。
+ */
+function extractPreformattedBlocks(html) {
+  if (!html || typeof DOMParser === "undefined") return [];
+  const documentFromHtml = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(documentFromHtml.querySelectorAll("pre"))
+    .filter((pre) => !pre.parentElement?.closest("pre"))
+    .map((pre) => pre.textContent.replace(/\r\n?/g, "\n").split("\n").map(normalizeCodeLine).filter((line) => line !== ""))
+    .filter((blockLines) => blockLines.length > 0);
+}
+
+/**
+ * チャット画面などからコピーした文章では、コードが```で囲まれずにそのまま入ります。
+ * コピー元のHTMLにあるコードのかたまり（<pre>）と同じ行の並びを探して、直前の見出しの行ごと取り除きます。
+ * 空行の入り方はコピー元によって違うため、空行は飛ばして比べます。
+ */
+function removePreformattedBlocks(text, html) {
+  const blocks = extractPreformattedBlocks(html);
+  let lines = text.split("\n");
+
+  blocks.forEach((blockLines) => {
+    for (let start = 0; start < lines.length; start += 1) {
+      if (normalizeCodeLine(lines[start]) !== blockLines[0]) continue;
+
+      let lineIndex = start;
+      let matched = 0;
+      while (lineIndex < lines.length && matched < blockLines.length) {
+        const line = normalizeCodeLine(lines[lineIndex]);
+        if (line !== "" && line !== blockLines[matched]) break;
+        if (line !== "") matched += 1;
+        lineIndex += 1;
+      }
+      if (matched < blockLines.length) continue;
+
+      const before = lines.slice(0, start);
+      removeCodeLabelBefore(before);
+      lines = before.concat(lines.slice(lineIndex));
+      return;
+    }
+  });
+
+  return lines.join("\n");
+}
+
+/**
+ * 貼り付けた文章からプログラムのコードと、その実行結果を取り除きます。
+ * コードは記号や英単語ばかりで、読み上げても内容がわからないためです。
+ * ```で囲まれた部分と、コピー元のHTMLでコードとして表示されていた部分（<pre>）が対象です。
+ * あわせて、「コードを表示」のようなボタンの文字だけの行も取り除きます。
+ */
+function removeCodeBlocks(text, html = "") {
+  return removeFencedCodeBlocks(removePreformattedBlocks(text, html))
+    .split("\n")
+    .filter((line) => !CODE_TOGGLE_LABEL_PATTERN.test(line.trim()))
+    .join("\n");
+}
+
 // 貼り付けた文章とクリップボードから取り込んだ文章を、そのまま読み上げられる形に整えます。
 // PDFなどからコピーした文章は表示の幅で改行されているため、その改行をつなぎ直してから整形します。
 // 参照先のノートの一覧の行が前の行につながらないよう、つなぎ直す前に取り除きます。
-function cleanPastedText(text) {
-  const withoutNoteLinks = removeNoteLinks(text.replace(/\r\n?|\u2028|\u2029/g, "\n"));
+// コードの「#」などが見出しの記号として扱われないよう、コードはいちばん最初に取り除きます。
+// htmlには、コピー元のHTML（text/html）があれば渡します。コードの部分を見分けるために使います。
+function cleanPastedText(text, html = "") {
+  const normalizedText = text.replace(/\r\n?|\u2028|\u2029/g, "\n");
+  const withoutNoteLinks = removeNoteLinks(removeCodeBlocks(normalizedText, html));
   return sanitizePastedText(joinWrappedLines(withoutNoteLinks, { joinAcrossEmptyLines: false }));
 }
 
@@ -1940,7 +2050,7 @@ async function readFromClipboard() {
   clipboardButton.innerHTML = '<span aria-hidden="true">…</span> 読み込み中';
 
   try {
-    const { text: clipboardText, image: clipboardImage } = await readClipboardContent();
+    const { text: clipboardText, html: clipboardHtml = "", image: clipboardImage } = await readClipboardContent();
 
     // 画像がコピーされている場合は、文字を読み取ってからそのまま読み上げます。
     if (clipboardImage) {
@@ -1948,7 +2058,7 @@ async function readFromClipboard() {
       return;
     }
 
-    const sanitizedText = cleanPastedText(clipboardText);
+    const sanitizedText = cleanPastedText(clipboardText, clipboardHtml);
     if (!sanitizedText.trim()) {
       showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
       return;
@@ -2028,7 +2138,11 @@ async function readClipboardContent() {
 
       for (const item of clipboardItems) {
         if (item.types.includes("text/plain")) {
-          return { text: await (await item.getType("text/plain")).text(), image: null };
+          // コードのかたまりを見分けるため、コピー元のHTMLもあれば一緒に受け取ります。
+          const html = item.types.includes("text/html")
+            ? await (await item.getType("text/html")).text().catch(() => "")
+            : "";
+          return { text: await (await item.getType("text/plain")).text(), html, image: null };
         }
 
         const imageType = item.types.find((type) => type.startsWith("image/"));
@@ -3352,7 +3466,7 @@ textInput.addEventListener("paste", (event) => {
 
   event.preventDefault();
   clearBeforeClipboardReading();
-  const sanitizedText = cleanPastedText(pastedText);
+  const sanitizedText = cleanPastedText(pastedText, event.clipboardData?.getData("text/html") || "");
   if (!sanitizedText.trim()) {
     showError("絵文字と空行を除くと、読み上げ可能な文章がありません。");
     return;
