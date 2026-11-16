@@ -358,6 +358,25 @@ function expandEnglishAbbreviations(text) {
   });
 }
 
+// ピリオドの付かない大文字の略語と、読み上げるときの元の言葉です。
+// 略したままだと別の言葉（VW → フォルクスワーゲン）に読まれてしまうものを、省略しない形に置き換えます。
+const UPPERCASE_ABBREVIATIONS = {
+  VW: "Vehicle Washer",
+};
+// 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
+const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
+  String.raw`(?<![A-Za-z0-9])(${Object.keys(UPPERCASE_ABBREVIATIONS).join("|")})(?![A-Za-z0-9])`,
+  "g",
+);
+
+/**
+ * 「VW」のような略語を、誤読されないよう省略しない言葉に置き換えて読み上げます。
+ * 例：VWの点検 → Vehicle Washerの点検
+ */
+function expandUppercaseAbbreviations(text) {
+  return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
+}
+
 // アメリカの州の略称（郵便で使う2文字の記号）と、読み上げるときの州名です。
 const US_STATE_NAMES = {
   AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
@@ -523,7 +542,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(expandUsCityCodes(expandUsStateAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(expandUsCityCodes(expandUsStateAbbreviations(expandUppercaseAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
