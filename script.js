@@ -1862,17 +1862,31 @@ const CODE_TOGGLE_LABEL_PATTERN = /^コードを(?:表示|非表示|隠す|折�
 // Markdownのコードのかたまりの始まりの行です（``` または ~~~）。
 const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
 
+// 中身がプログラムではなく、ふつうの文章であることを示す見出しです（例：Plaintext、Text、Markdown）。
+// メールの下書きのように、読み上げてほしい文章がこの形で表示されるため、中身は残して見出しだけを取り除きます。
+const TEXT_BLOCK_LABEL_PATTERN = /^(?:plain[\s_-]*text|text|txt|markdown|md|テキスト|プレーンテキスト)$/i;
+
 /**
- * 取り除いたコードのかたまりの直前にある見出しの行（空行は飛ばします）を取り除きます。
+ * コードのかたまりの直前にある見出しの行（空行は飛ばします）を取り除きます。
+ * 見出しが文章を示すもの（Plaintextなど）だったときはtrueを返し、中身を残せるようにします。
  */
 function removeCodeLabelBefore(lines) {
   let index = lines.length - 1;
   while (index >= 0 && lines[index].trim() === "") index -= 1;
-  if (index >= 0 && CODE_LABEL_PATTERN.test(lines[index].trim())) lines.splice(index);
+  if (index < 0) return false;
+
+  const label = lines[index].trim();
+  if (TEXT_BLOCK_LABEL_PATTERN.test(label)) {
+    lines.splice(index);
+    return true;
+  }
+  if (CODE_LABEL_PATTERN.test(label)) lines.splice(index);
+  return false;
 }
 
 /**
  * Markdownのコードのかたまり（```で囲まれた部分）を、直前の見出しの行ごと取り除きます。
+ * ```plaintext のように文章を示す種類か、直前の見出しがPlaintextなどのときは、囲みと見出しだけを取り除いて中身を残します。
  * 閉じる行がないときは、本文を消しすぎないよう、囲みの行だけを取り除きます。
  */
 function removeFencedCodeBlocks(text) {
@@ -1891,7 +1905,9 @@ function removeFencedCodeBlocks(text) {
     const closingIndex = lines.findIndex((line, lineIndex) => lineIndex > index && closingPattern.test(line));
     if (closingIndex === -1) continue;
 
-    removeCodeLabelBefore(result);
+    const isTextLabel = removeCodeLabelBefore(result);
+    const info = lines[index].trim().slice(fence.length).trim().split(/\s+/)[0];
+    if (isTextLabel || TEXT_BLOCK_LABEL_PATTERN.test(info)) result.push(...lines.slice(index + 1, closingIndex));
     index = closingIndex;
   }
 
@@ -1939,8 +1955,9 @@ function removePreformattedBlocks(text, html) {
       if (matched < blockLines.length) continue;
 
       const before = lines.slice(0, start);
-      removeCodeLabelBefore(before);
-      lines = before.concat(lines.slice(lineIndex));
+      // 見出しがPlaintextなどのときは、見出しだけを取り除いて文章を残します。
+      const kept = removeCodeLabelBefore(before) ? lines.slice(start, lineIndex) : [];
+      lines = before.concat(kept, lines.slice(lineIndex));
       return;
     }
   });
