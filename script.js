@@ -388,6 +388,30 @@ function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
 }
 
+// 読み間違えられる言葉（人の名前など）と、読み上げるときの読み方（ひらがな）です。
+// 氏名は姓と名をつなげて書きます。文章では姓と名のあいだに空白が入ることがあるため、空白があっても見つけます。
+// 名だけで書かれることもあるため、名だけでも登録しておきます。長い言葉から先に置き換えます。
+const WORD_READINGS = {
+  中西健太朗: "なかにしけんたろう",
+  健太朗: "けんたろう",
+};
+const WORD_READING_PATTERN = new RegExp(
+  Object.keys(WORD_READINGS)
+    .sort((a, b) => b.length - a.length)
+    .map((word) => Array.from(word).map((character) => character.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("[ \t\u3000]?"))
+    .map((pattern) => `(${pattern})`)
+    .join("|"),
+  "g",
+);
+
+/**
+ * 読み間違えられる言葉を、登録した読み方（ひらがな）に置き換えて読み上げます。
+ * 例：中西 健太朗さん → なかにしけんたろうさん、健太朗さん → けんたろうさん
+ */
+function applyWordReadings(text) {
+  return text.replace(WORD_READING_PATTERN, (match) => WORD_READINGS[match.replace(/[ \t\u3000]/g, "")] ?? match);
+}
+
 // アメリカの州の略称（郵便で使う2文字の記号）と、読み上げるときの州名です。
 const US_STATE_NAMES = {
   AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
@@ -553,7 +577,7 @@ function removeCitationMarkers(text) {
  * 句読点がない長い文章は、空白を優先しつつ指定文字数以内に収めます。
  */
 function splitText(text, maxLength = MAX_CHUNK_LENGTH) {
-  const normalized = replaceUnsafeSymbols(expandUsCityCodes(expandUsStateAbbreviations(expandUppercaseAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n")))))))))))))))))))).trim();
+  const normalized = replaceUnsafeSymbols(expandUsCityCodes(expandUsStateAbbreviations(applyWordReadings(expandUppercaseAbbreviations(expandEnglishAbbreviations(replaceSlashDates(separateColonFromBracket(replaceUnderscores(removeDoubleAngleMarks(removeBackquotes(removeBackslashes(removeTablePipes(removeImagePlaceholders(removeExcelReferences(removeCitationMarkers(removeFilePaths(removeQuoteMarkers(removeHtmlTags(replaceBreakTags(text.replace(/\r\n?/g, "\n"))))))))))))))))))))).trim();
   if (!normalized) return [];
 
   // 文末記号と改行を別々の単位として取得し、入力された改行を保持します。
