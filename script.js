@@ -367,6 +367,8 @@ const UPPERCASE_ABBREVIATIONS = {
   // ティーチングボックス（ロボットに動きを教える操作盤）です。「BOX」は1文字ずつ読まれないよう、カタカナで指定します。
   "T-BOX": "ティーチングボックス",
   "T-Box": "ティーチングボックス",
+  // 「TW-STK」のように前に記号で別の略語が付くときは、上の一覧にあるものが先に置き換わります。
+  STK: "ストッカー",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -380,6 +382,7 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  * 例：VWの点検 → ビークルウォッシャー（Vehicle Washer：車両を洗う洗車機）の点検
  *     TW-STKへ搬送 → タワーストッカー（Tower Stocker）へ搬送
  *     T-BOXで操作 → ティーチングボックスで操作
+ *     STKの在庫 → ストッカーの在庫
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
