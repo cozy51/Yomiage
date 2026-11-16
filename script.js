@@ -394,6 +394,8 @@ function expandUppercaseAbbreviations(text) {
 const WORD_READINGS = {
   中西健太朗: "なかにしけんたろう",
   健太朗: "けんたろう",
+  村田三平: "むらたさんぺい",
+  三平: "さんぺい",
 };
 const WORD_READING_PATTERN = new RegExp(
   Object.keys(WORD_READINGS)
