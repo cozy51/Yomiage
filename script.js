@@ -388,13 +388,49 @@ function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
 }
 
+// フルネームは読み間違えが多いため、名字に「さん」を付けて読み上げます。
+// 登録した氏名と、名字の読み方（ひらがな）です。氏名は姓と名のあいだに空白を1つ入れて書きます。
+// 文章では空白があってもなくても見つけます。
+const FULL_NAME_SURNAMES = {
+  "中西 健太朗": "なかにし",
+  "村田 三平": "むらた",
+};
+// 名前のあとに付く敬称です。付いているときはその敬称を使い、付いていないときは「さん」を付けます。
+const HONORIFIC_PATTERN = "さん|様|さま|氏|くん|君|殿|ちゃん";
+const FULL_NAME_PATTERN = new RegExp(
+  `(${Object.keys(FULL_NAME_SURNAMES)
+    .sort((a, b) => b.length - a.length)
+    .map((name) => Array.from(name.replace(/ /g, "")).map((character) => character.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("[ \t\u3000]?"))
+    .join("|")})(${HONORIFIC_PATTERN})?`,
+  "g",
+);
+const FULL_NAME_KEYS = Object.fromEntries(Object.keys(FULL_NAME_SURNAMES).map((name) => [name.replace(/ /g, ""), name]));
+// 登録していない氏名でも、「姓 名さん」のように姓と名のあいだに空白があり、敬称が続くときは、名を省いて名字だけを読みます。
+// 姓・名はそれぞれ漢字1〜3文字とします。「営業部 部長様」「株式会社 山田製作所様」のような部署名・会社名・役職は名前として扱いません。
+const SPACED_FULL_NAME_PATTERN = new RegExp(
+  `(?<![\\p{Script=Han}々])([\\p{Script=Han}々]{1,3})[ \t\u3000]+([\\p{Script=Han}々]{1,3})(${HONORIFIC_PATTERN})`,
+  "gu",
+);
+const NON_NAME_CHARACTER_PATTERN = /[部課社室所店会係局長署庁院校団組御]/;
+
+/**
+ * フルネームを「名字＋さん」に置き換えて読み上げます。
+ * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん
+ */
+function shortenFullNames(text) {
+  return text
+    .replace(FULL_NAME_PATTERN, (match, name, honorific) => {
+      const key = FULL_NAME_KEYS[name.replace(/[ \t\u3000]/g, "")];
+      return key ? `${FULL_NAME_SURNAMES[key]}${honorific ?? "さん"}` : match;
+    })
+    .replace(SPACED_FULL_NAME_PATTERN, (match, surname, givenName, honorific) =>
+      NON_NAME_CHARACTER_PATTERN.test(surname + givenName) ? match : `${surname}${honorific}`);
+}
+
 // 読み間違えられる言葉（人の名前など）と、読み上げるときの読み方（ひらがな）です。
-// 氏名は姓と名をつなげて書きます。文章では姓と名のあいだに空白が入ることがあるため、空白があっても見つけます。
-// 名だけで書かれることもあるため、名だけでも登録しておきます。長い言葉から先に置き換えます。
+// 名だけで書かれることもあるため、名も登録しておきます。長い言葉から先に置き換えます。
 const WORD_READINGS = {
-  中西健太朗: "なかにしけんたろう",
   健太朗: "けんたろう",
-  村田三平: "むらたさんぺい",
   三平: "さんぺい",
 };
 const WORD_READING_PATTERN = new RegExp(
@@ -408,10 +444,11 @@ const WORD_READING_PATTERN = new RegExp(
 
 /**
  * 読み間違えられる言葉を、登録した読み方（ひらがな）に置き換えて読み上げます。
- * 例：中西 健太朗さん → なかにしけんたろうさん、健太朗さん → けんたろうさん
+ * フルネームは先に「名字＋さん」に置き換えます。
+ * 例：中西 健太朗さん → なかにしさん、健太朗さん → けんたろうさん
  */
 function applyWordReadings(text) {
-  return text.replace(WORD_READING_PATTERN, (match) => WORD_READINGS[match.replace(/[ \t\u3000]/g, "")] ?? match);
+  return shortenFullNames(text).replace(WORD_READING_PATTERN, (match) => WORD_READINGS[match.replace(/[ \t\u3000]/g, "")] ?? match);
 }
 
 // アメリカの州の略称（郵便で使う2文字の記号）と、読み上げるときの州名です。
