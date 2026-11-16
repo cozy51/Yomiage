@@ -394,6 +394,8 @@ function expandUppercaseAbbreviations(text) {
 const WORD_READINGS = {
   中西健太朗: "なかにしけんたろう",
   健太朗: "けんたろう",
+  原田清枝: "はらだきよえ",
+  清枝: "きよえ",
 };
 const WORD_READING_PATTERN = new RegExp(
   Object.keys(WORD_READINGS)
@@ -406,7 +408,7 @@ const WORD_READING_PATTERN = new RegExp(
 
 /**
  * 読み間違えられる言葉を、登録した読み方（ひらがな）に置き換えて読み上げます。
- * 例：中西 健太朗さん → なかにしけんたろうさん、健太朗さん → けんたろうさん
+ * 例：中西 健太朗さん → なかにしけんたろうさん、健太朗さん → けんたろうさん、原田清枝さん → はらだきよえさん
  */
 function applyWordReadings(text) {
   return text.replace(WORD_READING_PATTERN, (match) => WORD_READINGS[match.replace(/[ \t\u3000]/g, "")] ?? match);
