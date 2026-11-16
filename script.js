@@ -1866,22 +1866,43 @@ const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
 // メールの下書きのように、読み上げてほしい文章がこの形で表示されるため、中身は残して見出しだけを取り除きます。
 const TEXT_BLOCK_LABEL_PATTERN = /^(?:plain[\s_-]*text|text|txt|markdown|md|テキスト|プレーンテキスト)$/i;
 
+// 文章とみなすための、日本語の文字（ひらがな・カタカナ・漢字）の割合です。
+const PROSE_JAPANESE_RATIO = 0.3;
+// プログラムの行に見られる書き方です（キーワードで始まる行、行末の ; { }、代入、関数の呼び出し）。
+const CODE_LINE_PATTERN = /^\s*(?:import|from|def|class|return|print|const|let|var|function|if|for|while|SELECT|#include)\b|[;{}]\s*$|[A-Za-z_][\w.\]]*\s*[+\-*/]?=\s*\S|[A-Za-z_]\w*\(/;
+// プログラムの行がこの割合より少なければ、文章とみなします。
+const PROSE_CODE_LINE_RATIO = 0.3;
+
 /**
- * コードのかたまりの直前にある見出しの行（空行は飛ばします）を取り除きます。
- * 見出しが文章を示すもの（Plaintextなど）だったときはtrueを返し、中身を残せるようにします。
+ * かたまりの中身が、プログラムではなく読み上げてほしい文章（メールの下書きなど）かどうかを調べます。
+ * コピーの仕方によっては「Plaintext」の見出しが文章に入らないため、中身そのものでも判断します。
+ * 日本語の文字が多く、プログラムらしい行が少なければ文章とみなします。
  */
-function removeCodeLabelBefore(lines) {
+function isProseBlock(blockLines) {
+  const lines = blockLines.map((line) => line.trim()).filter((line) => line !== "");
+  if (lines.length === 0) return false;
+
+  const characters = Array.from(lines.join("").replace(/\s/g, ""));
+  const japaneseCount = characters.filter((character) => /[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}]/u.test(character)).length;
+  const codeLineCount = lines.filter((line) => CODE_LINE_PATTERN.test(line)).length;
+  return japaneseCount / characters.length >= PROSE_JAPANESE_RATIO
+    && codeLineCount / lines.length < PROSE_CODE_LINE_RATIO;
+}
+
+/**
+ * コードのかたまりの直前にある見出しの行（空行は飛ばします）を見て、中身を残すかどうかを決めます。
+ * 見出しがPlaintextなど文章を示すもの、囲みの種類が```textなど、または中身が文章のときは、中身を残します（trueを返します）。
+ * 見出しの行は、文章を示す見出しなら取り除き、中身を消すときはコードの見出し（Pythonなど）も取り除きます。
+ */
+function removeCodeLabelBefore(lines, blockLines, info = "") {
   let index = lines.length - 1;
   while (index >= 0 && lines[index].trim() === "") index -= 1;
-  if (index < 0) return false;
+  const label = index >= 0 ? lines[index].trim() : "";
 
-  const label = lines[index].trim();
-  if (TEXT_BLOCK_LABEL_PATTERN.test(label)) {
-    lines.splice(index);
-    return true;
-  }
-  if (CODE_LABEL_PATTERN.test(label)) lines.splice(index);
-  return false;
+  const isTextLabel = TEXT_BLOCK_LABEL_PATTERN.test(label);
+  const keepsBlock = isTextLabel || TEXT_BLOCK_LABEL_PATTERN.test(info) || isProseBlock(blockLines);
+  if (index >= 0 && (isTextLabel || (!keepsBlock && CODE_LABEL_PATTERN.test(label)))) lines.splice(index);
+  return keepsBlock;
 }
 
 /**
@@ -1905,9 +1926,9 @@ function removeFencedCodeBlocks(text) {
     const closingIndex = lines.findIndex((line, lineIndex) => lineIndex > index && closingPattern.test(line));
     if (closingIndex === -1) continue;
 
-    const isTextLabel = removeCodeLabelBefore(result);
     const info = lines[index].trim().slice(fence.length).trim().split(/\s+/)[0];
-    if (isTextLabel || TEXT_BLOCK_LABEL_PATTERN.test(info)) result.push(...lines.slice(index + 1, closingIndex));
+    const blockLines = lines.slice(index + 1, closingIndex);
+    if (removeCodeLabelBefore(result, blockLines, info)) result.push(...blockLines);
     index = closingIndex;
   }
 
@@ -1956,7 +1977,7 @@ function removePreformattedBlocks(text, html) {
 
       const before = lines.slice(0, start);
       // 見出しがPlaintextなどのときは、見出しだけを取り除いて文章を残します。
-      const kept = removeCodeLabelBefore(before) ? lines.slice(start, lineIndex) : [];
+      const kept = removeCodeLabelBefore(before, blockLines) ? lines.slice(start, lineIndex) : [];
       lines = before.concat(kept, lines.slice(lineIndex));
       return;
     }
