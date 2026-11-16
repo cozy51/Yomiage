@@ -360,8 +360,9 @@ function expandEnglishAbbreviations(text) {
 
 // ピリオドの付かない大文字の略語と、読み上げるときの元の言葉です。
 // 略したままだと別の言葉（VW → フォルクスワーゲン）に読まれてしまうものを、省略しない形に置き換えます。
+// 英語のつづりのままだと読み方が揺れる（Washer → 部品の「ワッシャー」）ため、読み方をカタカナで指定します。
 const UPPERCASE_ABBREVIATIONS = {
-  VW: "Vehicle Washer",
+  VW: "ビークルウォッシャー",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -371,7 +372,7 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
 
 /**
  * 「VW」のような略語を、誤読されないよう省略しない言葉に置き換えて読み上げます。
- * 例：VWの点検 → Vehicle Washerの点検
+ * 例：VWの点検 → ビークルウォッシャー（Vehicle Washer：車両を洗う洗車機）の点検
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
