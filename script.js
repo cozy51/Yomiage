@@ -50,6 +50,54 @@ const passwordCancel = document.getElementById("password-cancel");
 const synthesis = window.speechSynthesis;
 const MAX_CHUNK_LENGTH = 180;
 
+// 読み上げのときだけ、決まった読み方に置き換える言葉です（画面の文章はそのまま残します）。
+// 名字の「平野」は、ブラウザやAI音声が「へいや」と読むことがあるため「ひらの」と読ませます。
+// ただし「関東平野」「平野部」のような地形の意味の「へいや」は、置き換えません。
+const READING_OVERRIDES = [
+  { word: "平野", reading: "ひらの", isPersonName: true },
+];
+// 人の名前のすぐ後ろに付く敬称・役職です。これが続くときは、前に漢字があっても名前として読みます。
+const NAME_SUFFIX_PATTERN = /^(さん|さま|様|くん|君|ちゃん|氏|殿|先生|部長|課長|係長|主任|室長|所長|社長|専務|常務|取締役|部員|担当)/;
+// 地形の意味で使われることが多い、後ろに続く文字です（平野部・平野地帯 など）。
+const LANDFORM_SUFFIX_PATTERN = /^(部|地|帯|域)/;
+const KANJI_PATTERN = /[\u3400-\u9fff\uf900-\ufaff々]/;
+
+// 置き換える言葉かどうかを、前後の文字から判断します。
+function shouldOverrideReading(text, index, entry) {
+  if (!entry.isPersonName) return true;
+  const after = text.slice(index + entry.word.length);
+  if (NAME_SUFFIX_PATTERN.test(after)) return true;
+  if (LANDFORM_SUFFIX_PATTERN.test(after)) return false;
+  // 「関東平野」「大平野」のように、前に漢字が続くときは地名・地形とみなします。
+  const before = index > 0 ? text[index - 1] : "";
+  if (before && KANJI_PATTERN.test(before)) return false;
+  return true;
+}
+
+/**
+ * 読み上げ用の文章を作ります。
+ * 置き換えで文字数が変わるため、読み上げ用の文章の位置から元の文章の位置へ戻す表（toOriginal）も返します。
+ */
+function applyReadingOverrides(text) {
+  let spoken = "";
+  const toOriginal = [];
+  let index = 0;
+  while (index < text.length) {
+    const entry = READING_OVERRIDES.find((item) => text.startsWith(item.word, index) && shouldOverrideReading(text, index, item));
+    if (entry) {
+      for (let i = 0; i < entry.reading.length; i += 1) toOriginal.push(index);
+      spoken += entry.reading;
+      index += entry.word.length;
+    } else {
+      toOriginal.push(index);
+      spoken += text[index];
+      index += 1;
+    }
+  }
+  toOriginal.push(text.length);
+  return { text: spoken, toOriginal };
+}
+
 // 読み上げが無言のまま止まってしまう不具合を検知し、自動で復帰するための設定です。
 // ブラウザによっては1回の発話が15秒ほどを超えると、onend/onerrorのどちらも発火せずに停止します。
 const STALL_CHECK_INTERVAL = 1000;
@@ -1319,8 +1367,8 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   // 読み上げる文字が残っていない場合は、発話せずに次の文へ進みます。
   // 空の発話はブラウザによってendイベントが届かず、止まったままになることがあります。
-  const spokenText = activeChunk.slice(safeStartOffset);
-  if (!spokenText.trim()) {
+  const remainingText = activeChunk.slice(safeStartOffset);
+  if (!remainingText.trim()) {
     currentChunkIndex += 1;
     currentChunkOffset = 0;
     recoveryOffset = -1;
@@ -1331,6 +1379,9 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
 
   const activeUtteranceId = ++utteranceId;
 
+  // 名字など、決まった読み方にしたい言葉を置き換えてから発話します。
+  const reading = applyReadingOverrides(remainingText);
+  const spokenText = reading.text;
   const utterance = new SpeechSynthesisUtterance(spokenText);
   const selectedVoice = voices.find((voice) => voice.voiceURI === voiceSelect.value);
   if (selectedVoice) {
@@ -1387,10 +1438,14 @@ function speakCurrentChunk(activeSessionId, startOffset = 0) {
     markUtteranceStarted();
 
     // ハイライト位置は単語の先頭へ戻ることがあるため、到達位置は別に記録します。
-    const spokenOffset = safeStartOffset + event.charIndex;
+    // 読み方を置き換えた分の文字数のずれも、ここで元の文章の位置へ戻します。
+    const readingIndex = Math.max(0, Math.min(event.charIndex, reading.toOriginal.length - 1));
+    const originalIndex = reading.toOriginal[readingIndex];
+    const originalEnd = reading.toOriginal[Math.min(readingIndex + (event.charLength || 0), reading.toOriginal.length - 1)];
+    const spokenOffset = safeStartOffset + originalIndex;
     lastSpokenOffset = Math.max(lastSpokenOffset, spokenOffset);
 
-    const range = getHighlightRange(activeChunk, spokenOffset, event.charLength || 0);
+    const range = getHighlightRange(activeChunk, spokenOffset, event.charLength ? Math.max(1, originalEnd - originalIndex) : 0);
     currentChunkOffset = range.start;
     renderCurrentText(activeChunk, range.start, range.length);
   };
@@ -3298,7 +3353,9 @@ function stopAiPlayback() {
  * 1つ分の音声をGeminiへ作ってもらいます。
  * 同じ文章・同じ声のときは、作り直さずに前の音声を使います（料金がかからないようにするため）。
  */
-function fetchAiSpeech(text) {
+function fetchAiSpeech(originalText) {
+  // 名字など、決まった読み方にしたい言葉を置き換えてからAIへ渡します。
+  const text = applyReadingOverrides(originalText).text;
   // モデルの優先を切り替えたときは、別の音声として作り直します。
   const priority = getModelPriority();
   const key = `${priority}|${aiVoiceUsed}|${text}`;
