@@ -448,9 +448,12 @@ const FULL_NAME_SURNAMES = {
   "村田 三平": "むらた",
   // 中国の方のお名前です。「衣 朗（Yi, L.）」は「イーさん」と読みます。
   "衣 朗": "イー",
+  // 台湾の方のお名前です。「林漢昇 <hansheng_lin@muratec.com.tw>」は「リンさん」と読みます。
+  "林 漢昇": "リン",
 };
-// 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記が付くときは、その表記もまとめて読みません。
-const ROMANIZED_NAME_PATTERN = String.raw`(?:[ \t\u3000]?[（(][A-Za-z][A-Za-z ,.\-]*[)）])?`;
+// 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記や、「<hansheng_lin@muratec.com.tw>」のようなメールアドレスが付くときは、
+// それもまとめて読みません。
+const ROMANIZED_NAME_PATTERN = String.raw`(?:[ \t\u3000]?(?:[（(][A-Za-z][A-Za-z ,.\-]*[)）]|[<＜][^\s<>＜＞@]+@[^\s<>＜＞]+[>＞]))?`;
 // 名前のあとに付く敬称です。付いているときはその敬称を使い、付いていないときは「さん」を付けます。
 const HONORIFIC_PATTERN = "さん|様|さま|氏|くん|君|殿|ちゃん";
 const FULL_NAME_PATTERN = new RegExp(
@@ -475,6 +478,24 @@ const ROMANIZED_FULL_NAME_PATTERN = new RegExp(
   String.raw`(?<![\p{Script=Han}々])([\p{Script=Han}々]{1,3}(?:[ \t　]?[\p{Script=Han}々]{1,3})?)[ \t　]?[（(]([A-Za-z][A-Za-z'\-]*)[ \t　]*[,，、][ \t　]*[A-Za-z][A-Za-z .\-]*[)）](${HONORIFIC_PATTERN})?`,
   "gu",
 );
+// 「林漢昇 <hansheng_lin@muratec.com.tw>」のように、氏名のすぐ後ろにメールアドレスが付くときは、
+// メールアドレスの「@」より前を「_」「.」「-」で区切り、下の一覧にある中国・韓国の名字を手がかりに「名字＋さん」と読みます。
+// メールアドレスは読みません。一覧にある名字が見つからないとき（日本の方など）は、元の文章のまま読みます。
+const EMAIL_FULL_NAME_PATTERN = new RegExp(
+  String.raw`(?<![\p{Script=Han}々])([\p{Script=Han}々]{1,3}(?:[ \t\u3000]?[\p{Script=Han}々]{1,3})?)[ \t\u3000]*[<＜]([A-Za-z0-9._\-]+)@[^\s<>＜＞]+[>＞](${HONORIFIC_PATTERN})?`,
+  "gu",
+);
+
+/**
+ * メールアドレスの「@」より前から、中国・韓国の名字を探して、日本語での読み方（カタカナ）を返します。
+ * 名字らしいものが複数あるときは、「名_名字」の形が多いため後ろのものを使います。見つからないときは null を返します。
+ * 例：hansheng_lin → リン、tawen.chen → チェン、taro.yamada → null
+ */
+function surnameFromEmail(localPart) {
+  const surnames = localPart.toLowerCase().split(/[._\-]+/).filter((part) => ROMANIZED_SURNAME_READINGS[part]);
+  return surnames.length ? ROMANIZED_SURNAME_READINGS[surnames[surnames.length - 1]] : null;
+}
+
 // 中国・韓国の名字によく使われるローマ字と、日本語での読み方（カタカナ）です。
 const ROMANIZED_SURNAME_READINGS = {
   yi: "イー", li: "リー", lee: "リー", wang: "ワン", zhang: "チャン", chen: "チェン", liu: "リウ",
@@ -543,6 +564,7 @@ function romanizedSurnameToKana(romaji) {
  * フルネームを「名字＋さん」に置き換えて読み上げます。
  * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん、衣 朗（Yi, L.） → イーさん
  *     張 偉（Zhang, W.） → チャンさん（登録していなくても、ローマ字の表記から日本語の読み方にします）
+ *     陳大文 <tawen.chen@example.com.tw> → チェンさん（メールアドレスの名字から日本語の読み方にします）
  */
 function shortenFullNames(text) {
   return text
@@ -553,6 +575,11 @@ function shortenFullNames(text) {
     .replace(ROMANIZED_FULL_NAME_PATTERN, (match, name, romajiSurname, honorific) => {
       if (NON_NAME_CHARACTER_PATTERN.test(name)) return match;
       const kana = romanizedSurnameToKana(romajiSurname);
+      return kana ? `${kana}${honorific ?? "さん"}` : match;
+    })
+    .replace(EMAIL_FULL_NAME_PATTERN, (match, name, localPart, honorific) => {
+      if (NON_NAME_CHARACTER_PATTERN.test(name)) return match;
+      const kana = surnameFromEmail(localPart);
       return kana ? `${kana}${honorific ?? "さん"}` : match;
     })
     .replace(SPACED_FULL_NAME_PATTERN, (match, surname, givenName, honorific) =>
