@@ -446,14 +446,18 @@ function expandUppercaseAbbreviations(text) {
 const FULL_NAME_SURNAMES = {
   "中西 健太朗": "なかにし",
   "村田 三平": "むらた",
+  // 中国の方のお名前です。「衣 朗（Yi, L.）」は「イーさん」と読みます。
+  "衣 朗": "イー",
 };
+// 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記が付くときは、その表記もまとめて読みません。
+const ROMANIZED_NAME_PATTERN = String.raw`(?:[ \t\u3000]?[（(][A-Za-z][A-Za-z ,.\-]*[)）])?`;
 // 名前のあとに付く敬称です。付いているときはその敬称を使い、付いていないときは「さん」を付けます。
 const HONORIFIC_PATTERN = "さん|様|さま|氏|くん|君|殿|ちゃん";
 const FULL_NAME_PATTERN = new RegExp(
   `(${Object.keys(FULL_NAME_SURNAMES)
     .sort((a, b) => b.length - a.length)
     .map((name) => Array.from(name.replace(/ /g, "")).map((character) => character.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("[ \t\u3000]?"))
-    .join("|")})(${HONORIFIC_PATTERN})?`,
+    .join("|")})${ROMANIZED_NAME_PATTERN}(${HONORIFIC_PATTERN})?`,
   "g",
 );
 const FULL_NAME_KEYS = Object.fromEntries(Object.keys(FULL_NAME_SURNAMES).map((name) => [name.replace(/ /g, ""), name]));
@@ -467,7 +471,7 @@ const NON_NAME_CHARACTER_PATTERN = /[部課社室所店会係局長署庁院校�
 
 /**
  * フルネームを「名字＋さん」に置き換えて読み上げます。
- * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん
+ * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん、衣 朗（Yi, L.） → イーさん
  */
 function shortenFullNames(text) {
   return text
