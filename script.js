@@ -446,14 +446,18 @@ function expandUppercaseAbbreviations(text) {
 const FULL_NAME_SURNAMES = {
   "中西 健太朗": "なかにし",
   "村田 三平": "むらた",
+  // 中国の方のお名前です。「衣 朗（Yi, L.）」は「イーさん」と読みます。
+  "衣 朗": "イー",
 };
+// 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記が付くときは、その表記もまとめて読みません。
+const ROMANIZED_NAME_PATTERN = String.raw`(?:[ \t\u3000]?[（(][A-Za-z][A-Za-z ,.\-]*[)）])?`;
 // 名前のあとに付く敬称です。付いているときはその敬称を使い、付いていないときは「さん」を付けます。
 const HONORIFIC_PATTERN = "さん|様|さま|氏|くん|君|殿|ちゃん";
 const FULL_NAME_PATTERN = new RegExp(
   `(${Object.keys(FULL_NAME_SURNAMES)
     .sort((a, b) => b.length - a.length)
     .map((name) => Array.from(name.replace(/ /g, "")).map((character) => character.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("[ \t\u3000]?"))
-    .join("|")})(${HONORIFIC_PATTERN})?`,
+    .join("|")})${ROMANIZED_NAME_PATTERN}(${HONORIFIC_PATTERN})?`,
   "g",
 );
 const FULL_NAME_KEYS = Object.fromEntries(Object.keys(FULL_NAME_SURNAMES).map((name) => [name.replace(/ /g, ""), name]));
@@ -465,15 +469,91 @@ const SPACED_FULL_NAME_PATTERN = new RegExp(
 );
 const NON_NAME_CHARACTER_PATTERN = /[部課社室所店会係局長署庁院校団組御]/;
 
+// 「張 偉（Zhang, W.）」のように、氏名のすぐ後ろにローマ字の表記（「名字, 名」の形）が付くときは、
+// ローマ字の名字を手がかりに、日本語でのカタカナ読みにして「名字＋さん」と読みます（英語読みにはしません）。
+const ROMANIZED_FULL_NAME_PATTERN = new RegExp(
+  String.raw`(?<![\p{Script=Han}々])([\p{Script=Han}々]{1,3}(?:[ \t　]?[\p{Script=Han}々]{1,3})?)[ \t　]?[（(]([A-Za-z][A-Za-z'\-]*)[ \t　]*[,，、][ \t　]*[A-Za-z][A-Za-z .\-]*[)）](${HONORIFIC_PATTERN})?`,
+  "gu",
+);
+// 中国・韓国の名字によく使われるローマ字と、日本語での読み方（カタカナ）です。
+const ROMANIZED_SURNAME_READINGS = {
+  yi: "イー", li: "リー", lee: "リー", wang: "ワン", zhang: "チャン", chen: "チェン", liu: "リウ",
+  huang: "ホアン", zhao: "チャオ", wu: "ウー", zhou: "チョウ", xu: "シュー", sun: "スン", ma: "マー",
+  zhu: "チュー", hu: "フー", guo: "グオ", he: "ホー", lin: "リン", luo: "ルオ", gao: "ガオ",
+  yang: "ヤン", xie: "シエ", song: "ソン", tang: "タン", han: "ハン", feng: "フォン", deng: "ドン",
+  cao: "ツァオ", peng: "ポン", zeng: "ツォン", xiao: "シャオ", tian: "ティエン", dong: "ドン",
+  pan: "パン", yuan: "ユエン", cai: "ツァイ", jiang: "ジャン", yu: "ユー", du: "ドゥー", ye: "イエ",
+  cheng: "チェン", wei: "ウェイ", su: "スー", lu: "ルー", ding: "ディン", ren: "レン", shen: "シェン",
+  yao: "ヤオ", fang: "ファン", jin: "ジン", shi: "シー", fu: "フー", zhong: "チョン", wen: "ウェン",
+  mao: "マオ", qian: "チエン", kong: "コン", bai: "バイ", cui: "ツイ", kang: "カン", qiu: "チウ",
+  qin: "チン", jia: "ジア", xia: "シア", fan: "ファン", hou: "ホウ", duan: "ドゥアン", lei: "レイ",
+  long: "ロン", tao: "タオ", hao: "ハオ", gu: "グー", meng: "モン", qi: "チー", zou: "ゾウ",
+  xiong: "ション", tan: "タン", liao: "リャオ", shao: "シャオ", zheng: "チェン", liang: "リャン",
+  kim: "キム", park: "パク", choi: "チェ", jung: "チョン", jeong: "チョン", cho: "チョ", yoon: "ユン",
+  lim: "イム", shin: "シン", oh: "オ",
+};
+// 上の一覧にないローマ字は、ヘボン式のローマ字としてカタカナに直します（例: Tanaka → タナカ）。
+const ROMAJI_KANA = {
+  kya: "キャ", kyu: "キュ", kyo: "キョ", sha: "シャ", shu: "シュ", sho: "ショ", she: "シェ", shi: "シ",
+  cha: "チャ", chu: "チュ", cho: "チョ", che: "チェ", chi: "チ", tsu: "ツ", nya: "ニャ", nyu: "ニュ", nyo: "ニョ",
+  hya: "ヒャ", hyu: "ヒュ", hyo: "ヒョ", mya: "ミャ", myu: "ミュ", myo: "ミョ", rya: "リャ", ryu: "リュ", ryo: "リョ",
+  gya: "ギャ", gyu: "ギュ", gyo: "ギョ", bya: "ビャ", byu: "ビュ", byo: "ビョ", pya: "ピャ", pyu: "ピュ", pyo: "ピョ",
+  ja: "ジャ", ju: "ジュ", jo: "ジョ", je: "ジェ", ji: "ジ",
+  ka: "カ", ki: "キ", ku: "ク", ke: "ケ", ko: "コ", sa: "サ", su: "ス", se: "セ", so: "ソ",
+  ta: "タ", te: "テ", to: "ト", na: "ナ", ni: "ニ", nu: "ヌ", ne: "ネ", no: "ノ",
+  ha: "ハ", hi: "ヒ", fu: "フ", he: "ヘ", ho: "ホ", ma: "マ", mi: "ミ", mu: "ム", me: "メ", mo: "モ",
+  ya: "ヤ", yu: "ユ", yo: "ヨ", ra: "ラ", ri: "リ", ru: "ル", re: "レ", ro: "ロ", wa: "ワ", wo: "ヲ",
+  ga: "ガ", gi: "ギ", gu: "グ", ge: "ゲ", go: "ゴ", za: "ザ", zu: "ズ", ze: "ゼ", zo: "ゾ",
+  da: "ダ", de: "デ", do: "ド", ba: "バ", bi: "ビ", bu: "ブ", be: "ベ", bo: "ボ",
+  pa: "パ", pi: "ピ", pu: "プ", pe: "ペ", po: "ポ", a: "ア", i: "イ", u: "ウ", e: "エ", o: "オ",
+};
+
+/**
+ * ローマ字の名字を、日本語での読み方（カタカナ）に直します。直せないときは null を返します。
+ * 例：Yi → イー、Zhang → チャン、Tanaka → タナカ
+ */
+function romanizedSurnameToKana(romaji) {
+  const word = romaji.toLowerCase().replace(/['\-]/g, "");
+  if (ROMANIZED_SURNAME_READINGS[word]) return ROMANIZED_SURNAME_READINGS[word];
+  let kana = "";
+  let index = 0;
+  while (index < word.length) {
+    const rest = word.slice(index);
+    // 「Hattori」の「tt」のように同じ子音が続くときは「ッ」にします。
+    if (rest.length > 1 && rest[0] === rest[1] && !"aiueon".includes(rest[0])) {
+      kana += "ッ";
+      index += 1;
+      continue;
+    }
+    const syllable = [3, 2, 1].map((length) => rest.slice(0, length)).find((part) => ROMAJI_KANA[part]);
+    if (syllable) {
+      kana += ROMAJI_KANA[syllable];
+      index += syllable.length;
+    } else if (rest[0] === "n" || (rest[0] === "m" && /^m[bpm]/.test(rest))) {
+      kana += "ン";
+      index += 1;
+    } else {
+      return null;
+    }
+  }
+  return kana;
+}
+
 /**
  * フルネームを「名字＋さん」に置き換えて読み上げます。
- * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん
+ * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん、衣 朗（Yi, L.） → イーさん
+ *     張 偉（Zhang, W.） → チャンさん（登録していなくても、ローマ字の表記から日本語の読み方にします）
  */
 function shortenFullNames(text) {
   return text
     .replace(FULL_NAME_PATTERN, (match, name, honorific) => {
       const key = FULL_NAME_KEYS[name.replace(/[ \t\u3000]/g, "")];
       return key ? `${FULL_NAME_SURNAMES[key]}${honorific ?? "さん"}` : match;
+    })
+    .replace(ROMANIZED_FULL_NAME_PATTERN, (match, name, romajiSurname, honorific) => {
+      if (NON_NAME_CHARACTER_PATTERN.test(name)) return match;
+      const kana = romanizedSurnameToKana(romajiSurname);
+      return kana ? `${kana}${honorific ?? "さん"}` : match;
     })
     .replace(SPACED_FULL_NAME_PATTERN, (match, surname, givenName, honorific) =>
       NON_NAME_CHARACTER_PATTERN.test(surname + givenName) ? match : `${surname}${honorific}`);
