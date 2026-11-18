@@ -479,6 +479,24 @@ const SPACED_FULL_NAME_PATTERN = new RegExp(
 );
 const NON_NAME_CHARACTER_PATTERN = /[部課社室所店会係局長署庁院校団組御]/;
 
+// 英語で書かれた氏名と、呼ぶときの読み方（カタカナ）です。氏名は「名字, 名」の形で書きます。
+// 文章では「Outen, Lee」「Lee Outen」のどちらの順でも見つけ、後ろのメールアドレス（<lee.outen@muratec-usa.com>）もまとめて読みません。
+// 名字だけで「Outenさん」と書かれたとき（敬称が続くとき）も同じ読み方にします。
+const LATIN_FULL_NAME_READINGS = {
+  // 米国の方のお名前です。「Outen, Lee <lee.outen@muratec-usa.com>」は「リーさん」と読みます。
+  "Outen, Lee": "リー",
+};
+const LATIN_FULL_NAME_ENTRIES = Object.entries(LATIN_FULL_NAME_READINGS).map(([name, reading]) => {
+  const [surname, givenName] = name.split(/,\s*/).map((part) => part.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&"));
+  return {
+    reading,
+    pattern: new RegExp(
+      String.raw`(?<![A-Za-z])(?:${surname},?[ \t\u3000]+${givenName}|${givenName}[ \t\u3000]+${surname}|${surname}(?=[ \t\u3000]?(?:${HONORIFIC_PATTERN})))(?![A-Za-z])${ROMANIZED_NAME_PATTERN}[ \t\u3000]?(${HONORIFIC_PATTERN})?`,
+      "gi",
+    ),
+  };
+});
+
 // 「張 偉（Zhang, W.）」のように、氏名のすぐ後ろにローマ字の表記（「名字, 名」の形）が付くときは、
 // ローマ字の名字を手がかりに、日本語でのカタカナ読みにして「名字＋さん」と読みます（英語読みにはしません）。
 const ROMANIZED_FULL_NAME_PATTERN = new RegExp(
@@ -572,9 +590,13 @@ function romanizedSurnameToKana(romaji) {
  * 例：中西 健太朗 → なかにしさん、村田三平様 → むらた様、山田 太郎さん → 山田さん、衣 朗（Yi, L.） → イーさん
  *     張 偉（Zhang, W.） → チャンさん（登録していなくても、ローマ字の表記から日本語の読み方にします）
  *     陳大文 <tawen.chen@example.com.tw> → チェンさん（メールアドレスの名字から日本語の読み方にします）
+ *     Outen, Lee <lee.outen@muratec-usa.com>さん → リーさん（英語の氏名は LATIN_FULL_NAME_READINGS に登録します）
  */
 function shortenFullNames(text) {
-  return text
+  return LATIN_FULL_NAME_ENTRIES.reduce(
+    (result, { pattern, reading }) => result.replace(pattern, (match, honorific) => `${reading}${honorific ?? "さん"}`),
+    text,
+  )
     .replace(FULL_NAME_PATTERN, (match, name, honorific) => {
       const key = FULL_NAME_KEYS[name.replace(/[ \t\u3000]/g, "")];
       return key ? `${FULL_NAME_SURNAMES[key]}${honorific ?? "さん"}` : match;
