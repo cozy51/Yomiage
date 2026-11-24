@@ -429,6 +429,8 @@ const UPPERCASE_ABBREVIATIONS = {
   "T-Box": "ティーチングボックス",
   // 「TW-STK」のように前に記号で別の略語が付くときは、上の一覧にあるものが先に置き換わります。
   STK: "ストッカー",
+  // 「MMUSA」は「ミューザ」と読まれないよう、1文字ずつ「エムエムユーエスエー」と読みます。
+  MMUSA: "エムエムユーエスエー",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -443,6 +445,7 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     TW-STKへ搬送 → タワーストッカー（Tower Stocker）へ搬送
  *     T-BOXで操作 → ティーチングボックスで操作
  *     STKの在庫 → ストッカーの在庫
+ *     MMUSAへ連絡 → エムエムユーエスエーへ連絡
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
