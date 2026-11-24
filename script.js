@@ -64,6 +64,9 @@ const READING_OVERRIDES = [
   // 名字の「谷内」は「やち」と読みます。「谷内さん」のように名字だけのときも含みます。
   // 前に漢字が続くとき（地名など）は置き換えません。
   { word: "谷内", reading: "やち", isPersonName: true },
+  // 名字の「黒木」は「くろき」と読みます（「こくぼく」と読まれないようにします）。
+  // 「黒木さん」のように名字だけのときも含みます。前に漢字が続くときは置き換えません。
+  { word: "黒木", reading: "くろき", isPersonName: true },
 ];
 // 人の名前のすぐ後ろに付く敬称・役職です。これが続くときは、前に漢字があっても名前として読みます。
 const NAME_SUFFIX_PATTERN = /^(さん|さま|様|くん|君|ちゃん|氏|殿|先生|部長|課長|係長|主任|室長|所長|社長|専務|常務|取締役|部員|担当)/;
@@ -426,6 +429,8 @@ const UPPERCASE_ABBREVIATIONS = {
   "T-Box": "ティーチングボックス",
   // 「TW-STK」のように前に記号で別の略語が付くときは、上の一覧にあるものが先に置き換わります。
   STK: "ストッカー",
+  // 「MMUSA」は「ミューザ」と読まれないよう、1文字ずつ「エムエムユーエスエー」と読みます。
+  MMUSA: "エムエムユーエスエー",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -440,6 +445,7 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     TW-STKへ搬送 → タワーストッカー（Tower Stocker）へ搬送
  *     T-BOXで操作 → ティーチングボックスで操作
  *     STKの在庫 → ストッカーの在庫
+ *     MMUSAへ連絡 → エムエムユーエスエーへ連絡
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
