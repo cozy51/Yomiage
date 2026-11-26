@@ -438,6 +438,11 @@ const UPPERCASE_ABBREVIATIONS = {
   // 「GLOBALFOUNDRIES」（半導体の受託製造の会社）は、1文字ずつ読まれないよう「グローバルファウンドリー」と読みます。
   GLOBALFOUNDRIES: "グローバルファウンドリー",
   GlobalFoundries: "グローバルファウンドリー",
+  // 「chemSHERPA」（製品に含まれる化学物質の情報を伝えるしくみ）は「ケムシェルパ」と読みます。
+  chemSHERPA: "ケムシェルパ",
+  // 「shai」は1文字ずつ読まれないよう「シャイ」と読みます。
+  shai: "シャイ",
+  SHAI: "シャイ",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -455,6 +460,8 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     MMUSAへ連絡 → エムエムユーエスエーへ連絡
  *     FOUPを搬送 → フープを搬送
  *     GLOBALFOUNDRIESへ納入 → グローバルファウンドリーへ納入
+ *     chemSHERPAで回答 → ケムシェルパで回答
+ *     shaiの資料 → シャイの資料
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
