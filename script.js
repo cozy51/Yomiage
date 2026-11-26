@@ -69,6 +69,9 @@ const READING_OVERRIDES = [
   { word: "黒木", reading: "くろき", isPersonName: true },
   // 会社名の「興和」は「コーワ」と読みます（「こうわ」と読まれないようにします）。
   { word: "興和", reading: "コーワ" },
+  // 名字の「孫」は「そん」と読みます（「まご」と読まれないようにします）。
+  // 「孫」だけでは家族の「まご」と区別できないため、「孫さん」「孫部長」のように敬称・役職が続くときだけ置き換えます。
+  { word: "孫", reading: "そん", requiresNameSuffix: true },
 ];
 // 人の名前のすぐ後ろに付く敬称・役職です。これが続くときは、前に漢字があっても名前として読みます。
 const NAME_SUFFIX_PATTERN = /^(さん|さま|様|くん|君|ちゃん|氏|殿|先生|部長|課長|係長|主任|室長|所長|社長|専務|常務|取締役|部員|担当)/;
@@ -78,8 +81,9 @@ const KANJI_PATTERN = /[\u3400-\u9fff\uf900-\ufaff々]/;
 
 // 置き換える言葉かどうかを、前後の文字から判断します。
 function shouldOverrideReading(text, index, entry) {
-  if (!entry.isPersonName) return true;
   const after = text.slice(index + entry.word.length);
+  if (entry.requiresNameSuffix) return NAME_SUFFIX_PATTERN.test(after);
+  if (!entry.isPersonName) return true;
   if (NAME_SUFFIX_PATTERN.test(after)) return true;
   if (LANDFORM_SUFFIX_PATTERN.test(after)) return false;
   // 「関東平野」「大平野」のように、前に漢字が続くときは地名・地形とみなします。
@@ -479,8 +483,8 @@ const FULL_NAME_SURNAMES = {
   "林 漢昇": "リン",
   "楳生 仁子": "うめぶ",
   "谷内 好和": "やち",
-  // 中国の方のお名前です。「孫 豊堯」は「ソンさん」と読みます（「孫」だけでは「まご」と区別できないため、氏名で登録します）。
-  "孫 豊堯": "ソン",
+  // 中国の方のお名前です。「孫 豊堯」は「そんさん」と読みます（「孫」だけでは「まご」と区別できないため、氏名で登録します）。
+  "孫 豊堯": "そん",
   "黒木 慶人": "くろき",
 };
 // 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記や、「<hansheng_lin@muratec.com.tw>」のようなメールアドレスが付くときは、
