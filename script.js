@@ -447,6 +447,10 @@ const UPPERCASE_ABBREVIATIONS = {
   // 「shai」は1文字ずつ読まれないよう「シャイ」と読みます。
   shai: "シャイ",
   SHAI: "シャイ",
+  // 「Dalian」（中国の都市・大連）は、英語読みされないよう「だいれん」と読みます。
+  Dalian: "だいれん",
+  DALIAN: "だいれん",
+  dalian: "だいれん",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -466,6 +470,7 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     GLOBALFOUNDRIESへ納入 → グローバルファウンドリーへ納入
  *     chemSHERPAで回答 → ケムシェルパで回答
  *     shaiの資料 → シャイの資料
+ *     Dalianの工場 → だいれんの工場
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
