@@ -61,6 +61,8 @@ const READING_OVERRIDES = [
   { word: "伊勢着", reading: "いせちゃく" },
   // 名字の「楳生」は「うめぶ」と読みます（「楳生さん」のように名字だけのときも含みます）。
   { word: "楳生", reading: "うめぶ" },
+  // 名字の「繁成」は「しげなり」と読みます（「繁成さん」のように名字だけのときも含みます）。
+  { word: "繁成", reading: "しげなり" },
   // 名字の「谷内」は「やち」と読みます。「谷内さん」のように名字だけのときも含みます。
   // 前に漢字が続くとき（地名など）は置き換えません。
   { word: "谷内", reading: "やち", isPersonName: true },
@@ -447,6 +449,14 @@ const UPPERCASE_ABBREVIATIONS = {
   // 「shai」は1文字ずつ読まれないよう「シャイ」と読みます。
   shai: "シャイ",
   SHAI: "シャイ",
+  // 「Dalian」（中国の都市・大連）は、英語読みされないよう「だいれん」と読みます。
+  Dalian: "だいれん",
+  DALIAN: "だいれん",
+  dalian: "だいれん",
+  // 「Hynix」（半導体メーカーのSKハイニックス）は「ハイニックス」と読みます。
+  Hynix: "ハイニックス",
+  HYNIX: "ハイニックス",
+  hynix: "ハイニックス",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -466,6 +476,8 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     GLOBALFOUNDRIESへ納入 → グローバルファウンドリーへ納入
  *     chemSHERPAで回答 → ケムシェルパで回答
  *     shaiの資料 → シャイの資料
+ *     Dalianの工場 → だいれんの工場
+ *     SK hynixへ納入 → SK ハイニックスへ納入
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
@@ -486,6 +498,7 @@ const FULL_NAME_SURNAMES = {
   // 中国の方のお名前です。「孫 豊堯」は「そんさん」と読みます（「孫」だけでは「まご」と区別できないため、氏名で登録します）。
   "孫 豊堯": "そん",
   "黒木 慶人": "くろき",
+  "繁成 良和": "しげなり",
 };
 // 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記や、「<hansheng_lin@muratec.com.tw>」のようなメールアドレスが付くときは、
 // それもまとめて読みません。
