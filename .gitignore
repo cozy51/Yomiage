@@ -1,10 +1,13 @@
-# APIキーなどの秘密情報は、絶対にGitHubへコミットしません。
+# パスワードのハッシュなどの秘密情報は、絶対にGitHubへコミットしません。
 .env
 .env.local
 .env.*
+# wrangler dev で使うローカル用の秘密情報です。
+.dev.vars
+.dev.vars.*
 
-# ローカルでVercel CLIを使ったときに作られるフォルダーです。
-.vercel
+# wrangler が作る作業用のフォルダーです。
+.wrangler
 
 node_modules
 .DS_Store

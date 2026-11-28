@@ -123,7 +123,7 @@
           <input type="radio" name="process-mode" value="ai-ocr">
           <span class="process-option-body">
             <span class="process-option-title">🔍 高精度OCRで読み上げ</span>
-            <span class="process-option-note">画像をGeminiで高精度に読み取って、そのまま読み上げます。</span>
+            <span class="process-option-note">画像をAIで高精度に読み取って、そのまま読み上げます。</span>
           </span>
         </label>
 
@@ -163,26 +163,19 @@
       </fieldset>
 
       <fieldset class="model-priority">
-        <legend>AIモデル</legend>
+        <legend>AIモデルの選び方</legend>
         <label class="model-priority-option">
-          <input type="radio" name="model-priority" value="economy" checked>
+          <input type="radio" name="model-priority" value="auto" checked>
           <span class="model-priority-body">
-            <span class="model-priority-title">廉価モデル優先</span>
-            <span class="model-priority-note">安価・混雑に強い</span>
+            <span class="model-priority-title">自動選択（おすすめ）</span>
+            <span class="model-priority-note">内容・料金・品質に合わせてCloudflareが選びます</span>
           </span>
         </label>
         <label class="model-priority-option">
-          <input type="radio" name="model-priority" value="standard">
+          <input type="radio" name="model-priority" value="fixed">
           <span class="model-priority-body">
-            <span class="model-priority-title">通常モデル優先</span>
-            <span class="model-priority-note">高品質・料金高め</span>
-          </span>
-        </label>
-        <label class="model-priority-option">
-          <input type="radio" name="model-priority" value="hydrogen">
-          <span class="model-priority-body">
-            <span class="model-priority-title">Hydrogen優先</span>
-            <span class="model-priority-note">最高品質・料金最も高い</span>
+            <span class="model-priority-title">固定モデル</span>
+            <span class="model-priority-note">管理者が決めたモデルを毎回使います</span>
           </span>
         </label>
       </fieldset>
@@ -194,7 +187,7 @@
             <option value="">音声を読み込んでいます…</option>
           </select>
 
-          <label class="ai-voice-label" for="ai-voice-select">✨ AI音声（Gemini・有料）</label>
+          <label class="ai-voice-label" for="ai-voice-select">✨ AI音声（有料）</label>
           <select id="ai-voice-select" aria-describedby="voice-note"></select>
           <p id="voice-note" class="voice-note"></p>
         </div>
@@ -215,13 +208,13 @@
       </div>
 
       <table class="model-info">
-        <caption>使用AIモデル（<span id="model-priority-label">廉価モデル優先</span>）</caption>
+        <caption>使用AIモデル（<span id="model-priority-label">自動選択</span>）</caption>
         <thead>
           <tr><th scope="col"></th><th scope="col">OCR・要約・翻訳</th><th scope="col">AI音声</th></tr>
         </thead>
         <tbody>
-          <tr><th scope="row">最初に使う</th><td id="model-text">gemini-flash-lite-latest</td><td id="model-tts">自動（最新）</td></tr>
-          <tr><th scope="row">混雑・上限時</th><td id="model-text-fallback">gemini-flash-latest</td><td id="model-tts-fallback">—</td></tr>
+          <tr><th scope="row">選び方</th><td id="model-text-selection">自動選択</td><td id="model-tts-selection">固定モデル</td></tr>
+          <tr><th scope="row">指定モデル</th><td id="model-text">cloudflare/auto</td><td id="model-tts">google/gemini-3.8-flash-lite-tts</td></tr>
         </tbody>
       </table>
     </section>

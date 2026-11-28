@@ -1,0 +1,48 @@
+// Yomiage の Cloudflare Workers の設定です。
+// 参考: https://developers.cloudflare.com/workers/wrangler/configuration/
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yomiage",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+
+  // 画面（HTML・CSS・JavaScript・アイコン）は public/ からそのまま配信します。
+  // /api/* だけを Worker が受け持ちます。
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Workers AI / AI Gateway を呼び出すための AI Binding です。AIサービスごとのAPIキーは要りません。
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Worker のログ（エラーの調査用）です。入力した文章や画像はログへ出しません。
+  "observability": {
+    "enabled": true
+  },
+
+  // 秘密ではない設定です。ダッシュボード（Workers → yomiage → 設定 → 変数とシークレット）でも変更できます。
+  // パスワードのハッシュなどの秘密の値は、ここではなく Workers Secrets（wrangler secret put）へ保存します。
+  "vars": {
+    // AI Gateway の名前です。ダッシュボードの AI → AI Gateway で作った名前に合わせます。
+    "AI_GATEWAY_ID": "yomiage",
+    // 自動選択のときのモデルです（Auto Router）。custom/〇〇（Model Alias）や dynamic/〇〇（Dynamic Route）も指定できます。
+    "AI_TEXT_MODEL_AUTO": "cloudflare/auto",
+    // 画面で「固定モデル」を選んだときのモデルです。
+    "AI_TEXT_MODEL_FIXED": "google/gemini-3.8-flash",
+    // AI音声のモデルです（Auto Router は音声の生成に対応していないため、日本語に対応した音声モデルを指定します）。
+    "AI_TTS_MODEL": "google/gemini-3.8-flash-lite-tts",
+    // Auto Router が選べるモデル・提供元を絞りたいときに、カンマ区切りで指定します（空なら Cloudflare の既定の候補）。
+    "AI_AUTO_ALLOWED_MODELS": "",
+    "AI_AUTO_ALLOWED_PROVIDERS": "",
+    // AI Gateway のログへ入力・出力の本文を残すか（機密情報を含むことがあるため、既定は false）。
+    "AI_LOG_PAYLOAD": "false",
+    // Cloudflare Access で守っているときだけ設定します（例: myteam.cloudflareaccess.com と、アプリの AUD）。
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  }
+}
