@@ -61,9 +61,19 @@ const READING_OVERRIDES = [
   { word: "伊勢着", reading: "いせちゃく" },
   // 名字の「楳生」は「うめぶ」と読みます（「楳生さん」のように名字だけのときも含みます）。
   { word: "楳生", reading: "うめぶ" },
+  // 名字の「繁成」は「しげなり」と読みます（「繁成さん」のように名字だけのときも含みます）。
+  { word: "繁成", reading: "しげなり" },
   // 名字の「谷内」は「やち」と読みます。「谷内さん」のように名字だけのときも含みます。
   // 前に漢字が続くとき（地名など）は置き換えません。
   { word: "谷内", reading: "やち", isPersonName: true },
+  // 名字の「黒木」は「くろき」と読みます（「こくぼく」と読まれないようにします）。
+  // 「黒木さん」のように名字だけのときも含みます。前に漢字が続くときは置き換えません。
+  { word: "黒木", reading: "くろき", isPersonName: true },
+  // 会社名の「興和」は「コーワ」と読みます（「こうわ」と読まれないようにします）。
+  { word: "興和", reading: "コーワ" },
+  // 名字の「孫」は「そん」と読みます（「まご」と読まれないようにします）。
+  // 「孫」だけでは家族の「まご」と区別できないため、「孫さん」「孫部長」のように敬称・役職が続くときだけ置き換えます。
+  { word: "孫", reading: "そん", requiresNameSuffix: true },
 ];
 // 人の名前のすぐ後ろに付く敬称・役職です。これが続くときは、前に漢字があっても名前として読みます。
 const NAME_SUFFIX_PATTERN = /^(さん|さま|様|くん|君|ちゃん|氏|殿|先生|部長|課長|係長|主任|室長|所長|社長|専務|常務|取締役|部員|担当)/;
@@ -73,8 +83,9 @@ const KANJI_PATTERN = /[\u3400-\u9fff\uf900-\ufaff々]/;
 
 // 置き換える言葉かどうかを、前後の文字から判断します。
 function shouldOverrideReading(text, index, entry) {
-  if (!entry.isPersonName) return true;
   const after = text.slice(index + entry.word.length);
+  if (entry.requiresNameSuffix) return NAME_SUFFIX_PATTERN.test(after);
+  if (!entry.isPersonName) return true;
   if (NAME_SUFFIX_PATTERN.test(after)) return true;
   if (LANDFORM_SUFFIX_PATTERN.test(after)) return false;
   // 「関東平野」「大平野」のように、前に漢字が続くときは地名・地形とみなします。
@@ -426,6 +437,26 @@ const UPPERCASE_ABBREVIATIONS = {
   "T-Box": "ティーチングボックス",
   // 「TW-STK」のように前に記号で別の略語が付くときは、上の一覧にあるものが先に置き換わります。
   STK: "ストッカー",
+  // 「MMUSA」は「ミューザ」と読まれないよう、1文字ずつ「エムエムユーエスエー」と読みます。
+  MMUSA: "エムエムユーエスエー",
+  // 「FOUP」（ウェハーを入れて運ぶ容器）は、1文字ずつ読まれないよう「フープ」と読みます。
+  FOUP: "フープ",
+  // 「GLOBALFOUNDRIES」（半導体の受託製造の会社）は、1文字ずつ読まれないよう「グローバルファウンドリー」と読みます。
+  GLOBALFOUNDRIES: "グローバルファウンドリー",
+  GlobalFoundries: "グローバルファウンドリー",
+  // 「chemSHERPA」（製品に含まれる化学物質の情報を伝えるしくみ）は「ケムシェルパ」と読みます。
+  chemSHERPA: "ケムシェルパ",
+  // 「shai」は1文字ずつ読まれないよう「シャイ」と読みます。
+  shai: "シャイ",
+  SHAI: "シャイ",
+  // 「Dalian」（中国の都市・大連）は、英語読みされないよう「だいれん」と読みます。
+  Dalian: "だいれん",
+  DALIAN: "だいれん",
+  dalian: "だいれん",
+  // 「Hynix」（半導体メーカーのSKハイニックス）は「ハイニックス」と読みます。
+  Hynix: "ハイニックス",
+  HYNIX: "ハイニックス",
+  hynix: "ハイニックス",
 };
 // 前後が英数字のときは別の単語や型番の一部（VWX、VW2など）なので置き換えません。大文字の表記だけが対象です。
 const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
@@ -440,6 +471,13 @@ const UPPERCASE_ABBREVIATION_PATTERN = new RegExp(
  *     TW-STKへ搬送 → タワーストッカー（Tower Stocker）へ搬送
  *     T-BOXで操作 → ティーチングボックスで操作
  *     STKの在庫 → ストッカーの在庫
+ *     MMUSAへ連絡 → エムエムユーエスエーへ連絡
+ *     FOUPを搬送 → フープを搬送
+ *     GLOBALFOUNDRIESへ納入 → グローバルファウンドリーへ納入
+ *     chemSHERPAで回答 → ケムシェルパで回答
+ *     shaiの資料 → シャイの資料
+ *     Dalianの工場 → だいれんの工場
+ *     SK hynixへ納入 → SK ハイニックスへ納入
  */
 function expandUppercaseAbbreviations(text) {
   return text.replace(UPPERCASE_ABBREVIATION_PATTERN, (match, word) => UPPERCASE_ABBREVIATIONS[word]);
@@ -457,9 +495,10 @@ const FULL_NAME_SURNAMES = {
   "林 漢昇": "リン",
   "楳生 仁子": "うめぶ",
   "谷内 好和": "やち",
-  // 中国の方のお名前です。「孫 豊堯」は「ソンさん」と読みます（「孫」だけでは「まご」と区別できないため、氏名で登録します）。
-  "孫 豊堯": "ソン",
+  // 中国の方のお名前です。「孫 豊堯」は「そんさん」と読みます（「孫」だけでは「まご」と区別できないため、氏名で登録します）。
+  "孫 豊堯": "そん",
   "黒木 慶人": "くろき",
+  "繁成 良和": "しげなり",
 };
 // 氏名のすぐ後ろに「（Yi, L.）」のようなローマ字の表記や、「<hansheng_lin@muratec.com.tw>」のようなメールアドレスが付くときは、
 // それもまとめて読みません。
