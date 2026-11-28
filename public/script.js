@@ -1707,52 +1707,45 @@ function updateCurrentChips() {
   updateUsedModel();
 }
 
-// 音声モデルの名前を取得できないときに、画面の一番下の表へ出す名前です。
-const AUTO_MODEL_LABEL = "自動（最新）";
+// 実際に使ったモデル名を取得できなかったときに表示する名前です（推測したモデル名は表示しません）。
+const AUTO_MODEL_LABEL = "自動選択";
+const MODEL_SELECTION_LABELS = { auto: "自動選択", fixed: "固定モデル" };
 
 /**
- * サーバーから受け取った「使ったモデル名」を、画面に表示する形にします。
- * 「-latest」のように名前と実際の版が違うときは、実際の版をかっこで添えます。
+ * サーバーから受け取った「使ったモデル」の情報を、画面に表示する形にします。
+ * - 実際に使ったモデル名（AI Gatewayの応答ヘッダー cf-aig-routed-model から取得）があれば、その名前
+ * - 取得できなかったときは「自動選択」（推測したモデル名は表示しません）
+ * 自動選択で選ばれたモデルには「（自動選択）」を添えて、選び方も分かるようにします。
  */
 function readModelLabel(result) {
-  const model = typeof result?.model === "string" ? result.model : "";
-  const version = typeof result?.modelVersion === "string" ? result.modelVersion : "";
-  return model && version && version !== model ? `${model}（${version}）` : model;
+  const model = typeof result?.model === "string" ? result.model.trim() : "";
+  const selection = result?.selection === "fixed" ? "fixed" : "auto";
+  if (!model) return AUTO_MODEL_LABEL;
+  return selection === "auto" ? `${model}（自動選択）` : model;
 }
 
 /**
- * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名だけを大きく表示します。
- * 「-latest」のように実際の版を添えた名前（例：gemini-flash-latest（gemini-3.8-flash））は、実際の版の名前だけを出します。
- * 混み合っていて代わりのモデルへ切り替えたときは、そのことも短く添えます。
+ * 状態表示のすぐ下に、今の読み上げで実際に使ったAIのモデル名を表示します。
  * AIを使っていないときは表示しません。
  */
 function updateUsedModel() {
   const usedModelText = document.getElementById("used-model");
-  const primaryTextModel = document.getElementById("model-text").textContent;
-  const primaryTtsModel = document.getElementById("model-tts").textContent;
-  // 名前を比べるときは、添えた実際の版の部分を除いて比べます。
-  // 音声モデルの名前を取得できず「自動（最新）」と表示しているときは、切り替えたかどうかは添えません。
-  const describe = (model, primary) => {
-    const [base, version] = model.split("（");
-    const name = version ? version.replace(/）$/, "") : base;
-    return primary && primary !== AUTO_MODEL_LABEL && base !== primary ? `${name}（混雑のため切替）` : name;
-  };
   const names = new Set();
 
   const aiMode = getTextAiMode();
   const usesAiResult = Boolean(aiResultInput.value.trim()) && aiMode && hasFreshAiResult(aiMode);
   if (usesAiResult && aiResultModel) {
-    names.add(describe(aiResultModel, primaryTextModel));
+    names.add(aiResultModel);
   } else if (inputSourceKind === "image" && ocrEngineUsed === "ai" && ocrModelUsed) {
-    names.add(describe(ocrModelUsed, primaryTextModel));
+    names.add(ocrModelUsed);
   }
 
   if (isAiPlayback) {
-    aiTtsModelsUsed.forEach((model) => names.add(describe(model, primaryTtsModel)));
+    aiTtsModelsUsed.forEach((model) => names.add(model));
   }
 
   usedModelText.textContent = [...names].join(" ・ ");
-  usedModelText.title = names.size ? "使用したAIモデル" : "";
+  usedModelText.title = names.size ? "実際に使用したAIモデル" : "";
   usedModelText.hidden = !names.size;
 }
 
@@ -1788,7 +1781,7 @@ function startSpeaking() {
   // 前に作った音声は、新しく読み上げ始めた時点で保存できなくします。
   clearAiAudio();
 
-  // AI音声（有料）がONのときは、Geminiで音声を作って再生します。
+  // AI音声（有料）がONのときは、AIで音声を作って再生します。
   if (isAiVoiceEnabled()) {
     startAiSpeaking(text).catch(handleAiPlaybackFailure);
     return;
@@ -2561,7 +2554,7 @@ async function runOcr(file, speakAfterOcr = false) {
 
   try {
     const recognized = useAi
-      ? await recognizeWithGeminiAndLogin(file, summaryMode)
+      ? await recognizeWithAiAndLogin(file, summaryMode)
       : { text: await recognizeWithTesseract(file) };
     const recognizedText = cleanOcrText(recognized.text);
 
@@ -2710,14 +2703,14 @@ passwordDialog.addEventListener("cancel", (event) => {
   closePasswordDialog(false);
 });
 
-// ===== AIで高精度OCR（Gemini API） =====
-// Gemini APIのキーをブラウザへ置くと誰にでも読み取られてしまうため、
-// ブラウザからは直接呼ばず、Vercel側の /api/ocr を経由して呼び出します。
+// ===== AIで高精度OCR（Cloudflare AI Gateway） =====
+// AIの機能は料金がかかり、認証も必要なため、
+// ブラウザからは直接呼ばず、Worker側の /api/ocr を経由して呼び出します。
 // 料金がかかるため、「画像の読み取り方法」でAI OCRを選んでいるときだけ呼び出します。
 
 const AI_OCR_ENDPOINT = "/api/ocr";
 const AI_OCR_TIMEOUT_MS = 65000;
-// Vercelへ送れる大きさには上限があるため、余裕をみた上限を決めています。
+// サーバーへ送れる大きさには上限があるため、余裕をみた上限を決めています。
 const AI_OCR_MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 const AI_OCR_MAX_IMAGE_SIDE = 2000;
 const AI_OCR_SUPPORTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -2798,15 +2791,15 @@ async function withPasswordRetry(run) {
   }
 }
 
-function recognizeWithGeminiAndLogin(file, summaryMode = "") {
-  return withPasswordRetry(() => recognizeWithGemini(file, summaryMode));
+function recognizeWithAiAndLogin(file, summaryMode = "") {
+  return withPasswordRetry(() => recognizeWithAi(file, summaryMode));
 }
 
 /**
- * Vercel側の /api/ocr を経由して、Geminiが読み取った文章を受け取ります。
+ * Worker側の /api/ocr を経由して、AIが読み取った文章を受け取ります。
  * summaryMode（要約・詳細要約）を渡したときは、読み取った文章の要約も一緒に受け取ります。
  */
-async function recognizeWithGemini(file, summaryMode = "") {
+async function recognizeWithAi(file, summaryMode = "") {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_OCR_TIMEOUT_MS);
 
@@ -2817,13 +2810,13 @@ async function recognizeWithGemini(file, summaryMode = "") {
       headers: { "Content-Type": "application/json" },
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
-      body: JSON.stringify({ ...payload, ...(summaryMode ? { action: summaryMode } : {}), modelPriority: getModelPriority() }),
+      body: JSON.stringify({ ...payload, ...(summaryMode ? { action: summaryMode } : {}), modelSelection: getModelPriority() }),
       signal: controller.signal,
     });
 
     const result = await response.json().catch(() => null);
 
-    // Vercel側の処理が見つからない・落ちている場合は、JSONではない応答が返ります。
+    // Worker側の処理が見つからない・落ちている場合は、JSONではない応答が返ります。
     if (!result) {
       if (response.status === 404) {
         throw createOcrError("AI OCRの機能が見つかりません。デプロイが終わっているか確認してください。", "AI-HTTP404");
@@ -2853,7 +2846,7 @@ async function recognizeWithGemini(file, summaryMode = "") {
 
 // ===== 処理方法（無料OCR / 高精度OCR / 要約 / 詳細要約 / 翻訳） =====
 // 画像の読み取り方と、読み上げる前のAI処理を、1つの選択で決めます。
-// 高精度OCR・要約・詳細要約・翻訳はGeminiを使うため、同じパスワード認証が必要です。
+// 高精度OCR・要約・詳細要約・翻訳はAI（Cloudflare AI Gateway）を使うため、同じパスワード認証が必要です。
 
 const AI_TEXT_ENDPOINT = "/api/ai";
 const AI_TEXT_TIMEOUT_MS = 65000;
@@ -2861,10 +2854,11 @@ const PROCESS_MODE_STORAGE_KEY = "yomiage-process-mode";
 const PROCESS_MODES = ["plain", "ai-ocr", "summarize", "summarize-detail", "translate"];
 const AI_TEXT_MODES = ["summarize", "summarize-detail", "translate"];
 const TRANSLATE_LANGUAGE_STORAGE_KEY = "yomiage-translate-language";
-// AIのどのモデルを先に使うか（economy = 廉価モデル優先、standard = 通常モデル優先、hydrogen = Hydrogen優先）を保存する場所です。
-const MODEL_PRIORITY_STORAGE_KEY = "yomiage-model-priority";
-const MODEL_PRIORITIES = ["economy", "standard", "hydrogen"];
-const MODEL_PRIORITY_LABELS = { economy: "廉価モデル優先", standard: "通常モデル優先", hydrogen: "Hydrogen優先" };
+// AIモデルの選び方（auto = 自動選択・既定、fixed = 固定モデル）を保存する場所です。
+// 以前の保存先（yomiage-model-priority の economy / standard / hydrogen）は使わず、自動選択から始めます。
+const MODEL_PRIORITY_STORAGE_KEY = "yomiage-model-selection";
+const MODEL_PRIORITIES = ["auto", "fixed"];
+const MODEL_PRIORITY_LABELS = MODEL_SELECTION_LABELS;
 const modelPriorityInputs = [...document.querySelectorAll('input[name="model-priority"]')];
 
 // AIの結果がどの文章から作られたかを覚えておき、同じ文章を二度送らないようにします。
@@ -2873,7 +2867,7 @@ let aiResultSource = "";
 let aiResultModel = "";
 let aiResultMode = "";
 let aiResultLanguage = "";
-// AIの結果を作ったときの「どちらのモデルを先に使うか」です。切り替えたら作り直します。
+// AIの結果を作ったときの「AIモデルの選び方」です。切り替えたら作り直します。
 let aiResultPriority = "";
 
 function getProcessMode() {
@@ -2881,7 +2875,7 @@ function getProcessMode() {
   return selected && PROCESS_MODES.includes(selected.value) ? selected.value : "plain";
 }
 
-// 画像をGeminiで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
+// 画像をAIで読み取るのは「高精度OCRで読み上げ」を選んでいるときだけです。
 // マウスを重ねたときや読み上げソフト向けの、省略しない処理方法の名前です。
 function getProcessModeFullLabel() {
   const selected = document.querySelector('input[name="process-mode"]:checked');
@@ -2988,7 +2982,7 @@ restoreProcessSettings();
 
 function getModelPriority() {
   const checked = modelPriorityInputs.find((input) => input.checked);
-  return checked && MODEL_PRIORITIES.includes(checked.value) ? checked.value : "economy";
+  return checked && MODEL_PRIORITIES.includes(checked.value) ? checked.value : "auto";
 }
 
 // 選んだモデルの優先は、次に使うときのためにブラウザへ保存します。
@@ -3058,7 +3052,7 @@ aiResultClear.addEventListener("click", () => {
   statusText.textContent = "AIの結果を消しました。上の文章を読み上げます。";
 });
 
-// Vercel側の /api/ai を経由して、Geminiが処理した文章を受け取ります。
+// Worker側の /api/ai を経由して、AIが処理した文章を受け取ります。
 async function requestAiText(mode, text) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_TEXT_TIMEOUT_MS);
@@ -3070,8 +3064,8 @@ async function requestAiText(mode, text) {
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
       body: JSON.stringify(mode === "translate"
-        ? { action: "translate", text, targetLanguage: translateLanguage.value, modelPriority: getModelPriority() }
-        : { action: mode, text, modelPriority: getModelPriority() }),
+        ? { action: "translate", text, targetLanguage: translateLanguage.value, modelSelection: getModelPriority() }
+        : { action: mode, text, modelSelection: getModelPriority() }),
       signal: controller.signal,
     });
 
@@ -3178,8 +3172,8 @@ async function startReading() {
   if (isProcessed) startSpeaking();
 }
 
-// ===== AI音声（Gemini）で読み上げる =====
-// ブラウザの音声（無料）とは別に、Geminiに音声を作らせて読み上げます。
+// ===== AI音声で読み上げる =====
+// ブラウザの音声（無料）とは別に、AIの音声モデルに音声を作らせて読み上げます。
 // 料金がかかるため、音声の選択で選んだときだけ使い、パスワードの認証も必要です。
 // 作った音声は、そのままWAVファイルとして保存できます。
 
@@ -3189,10 +3183,11 @@ const AI_TTS_TIMEOUT_MS = 65000;
 // 1回で作る文章の長さです。短く区切るほど、最初の音が出るまでが早くなり、時間切れも起きにくくなります。
 // api/tts.js の MAX_TEXT_LENGTH より短くしてください。
 const AI_TTS_CHUNK_LENGTH = 120;
-// Geminiが返す音声の形式です（16ビット・モノラル）。実際の値は返事から読み取ります。
+// AIが返す音声の形式です（16ビット・モノラル）。実際の値は返事から読み取ります。
 const AI_TTS_DEFAULT_SAMPLE_RATE = 24000;
 const AI_TTS_BITS_PER_SAMPLE = 16;
-// Gemini側が混み合っている（429）ときに、待ってからやり直す回数と、既定の待ち時間です。
+// AI Gatewayが混み合っている（TTS-BUSY）ときに、待ってからやり直す回数と、既定の待ち時間です。
+// 利用上限（TTS-LIMIT。Spend Limits）に達したときは、待っても作れないため、やり直しません。
 const AI_TTS_BUSY_RETRY_DELAYS_MS = [8000, 20000];
 
 // 同じ文章・同じ声をもう一度読み上げるときに、作り直して料金がかからないようにします。
@@ -3493,7 +3488,7 @@ function stopAiPlayback() {
 }
 
 /**
- * 1つ分の音声をGeminiへ作ってもらいます。
+ * 1つ分の音声をAIの音声モデルへ作ってもらいます。
  * 同じ文章・同じ声のときは、作り直さずに前の音声を使います（料金がかからないようにするため）。
  */
 function fetchAiSpeech(originalText) {
@@ -3534,9 +3529,9 @@ function trimAiSpeechCache() {
 }
 
 /**
- * Gemini側が混み合っている（TTS-G429）ときは、少し待ってからやり直します。
+ * AI Gatewayが混み合っている（TTS-BUSY）ときは、少し待ってからやり直します（最大2回。無制限には繰り返しません）。
  * 無料枠では1分あたりに作れる回数が決まっているため、待てば続きを作れることが多いからです。
- * 待つ時間は、Geminiが教えてくれた秒数を優先して使います。
+ * 待つ時間は、サーバーが教えてくれた秒数があれば、それを優先して使います。
  */
 async function requestAiSpeechWithRetry(text, voice, priority) {
   for (let attempt = 0; ; attempt += 1) {
@@ -3544,7 +3539,7 @@ async function requestAiSpeechWithRetry(text, voice, priority) {
       return await requestAiSpeech(text, voice, priority);
     } catch (error) {
       const defaultDelay = AI_TTS_BUSY_RETRY_DELAYS_MS[attempt];
-      if (error?.ocrCode !== "TTS-G429" || !defaultDelay) throw error;
+      if (error?.ocrCode !== "TTS-BUSY" || !defaultDelay) throw error;
 
       const waitMs = Math.min(Math.max(error.retryAfterMs || defaultDelay, 3000), 60000);
       showBusyNotice(waitMs);
@@ -3561,7 +3556,7 @@ function showBusyNotice(waitMs) {
   statusText.textContent = `AI音声が混み合っています。${Math.ceil(waitMs / 1000)}秒待ってから続きを作ります…`;
 }
 
-// Vercel側の /api/tts を経由して、Geminiが作った音声を受け取ります。
+// Worker側の /api/tts を経由して、AIが作った音声を受け取ります。
 async function requestAiSpeech(text, voice, priority) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AI_TTS_TIMEOUT_MS);
@@ -3572,7 +3567,7 @@ async function requestAiSpeech(text, voice, priority) {
       headers: { "Content-Type": "application/json" },
       // 認証の引換券（Cookie）を一緒に送ります。
       credentials: "same-origin",
-      body: JSON.stringify({ text, voice, modelPriority: priority }),
+      body: JSON.stringify({ text, voice, modelSelection: priority }),
       signal: controller.signal,
     });
 
@@ -3587,7 +3582,7 @@ async function requestAiSpeech(text, voice, priority) {
 
     if (!response.ok || !result.audio) {
       const error = createOcrError(result.message || "AI音声を作れませんでした。しばらくしてから再度お試しください。", result.code);
-      // 混み合っているときは、Geminiが教えてくれた待ち時間も受け取ります。
+      // 混み合っているときは、待ち時間が分かればそれも受け取ります。
       error.retryAfterMs = Number(result.retryAfterMs) || 0;
       throw error;
     }
@@ -3674,7 +3669,7 @@ function writeAscii(view, offset, text) {
 }
 
 /**
- * Geminiが返す音声には、そのままでは再生できる形の情報が入っていません。
+ * 生の音声データ（PCM）には、そのままでは再生できる形の情報が入っていません。
  * 先頭にWAVの見出し（44バイト）を付けて、ブラウザでも保存先でも再生できるようにします。
  */
 function buildWavBlob(pcmParts, sampleRate) {
@@ -3903,25 +3898,22 @@ window.addEventListener("resize", () => {
 window.addEventListener("pagehide", () => stopSpeaking(false));
 window.addEventListener("beforeunload", () => synthesis.cancel());
 
-// 画面の一番下に、選んでいる優先順位で使うAIモデル名を表示します。
-// サーバー側で実際に使う順番（/api/models）を取得し、取得できないとき（ローカルで開いたときなど）は既定の名前を使います。
-// 並びは「最初に使うモデル」「混み合っているときなどに切り替える先のモデル」の順です。
-// 音声モデルはサーバー側が最新のものを自動で選ぶため、取得できないときは「自動（最新）」と表示します。
+// 画面の一番下に、選んでいる「AIモデルの選び方」と、指定しているモデル名を表示します。
+// サーバー側の設定（/api/models）を取得し、取得できないとき（ローカルで開いたときなど）は既定の名前を使います。
+// 自動選択のときに実際に使われるモデルは、Cloudflare AI Gateway が処理ごとに選びます（読み上げのたびに状態表示の下へ出します）。
 let modelLists = {
-  economy: { text: ["gemini-flash-lite-latest", "gemini-flash-latest"], tts: [AUTO_MODEL_LABEL] },
-  standard: { text: ["gemini-flash-latest", "gemini-flash-lite-latest"], tts: [AUTO_MODEL_LABEL] },
-  hydrogen: { text: ["gemini-4-hydrogen", "gemini-flash-latest"], tts: [AUTO_MODEL_LABEL] },
+  auto: { text: { model: "cloudflare/auto", selection: "auto" }, tts: { model: "google/gemini-3.8-flash-lite-tts", selection: "fixed" } },
+  fixed: { text: { model: "google/gemini-3.8-flash", selection: "fixed" }, tts: { model: "google/gemini-3.8-flash-lite-tts", selection: "fixed" } },
 };
 
 function renderModelInfo() {
   const priority = getModelPriority();
-  const lists = modelLists[priority] || modelLists.economy;
+  const lists = modelLists[priority] || modelLists.auto;
   document.getElementById("model-priority-label").textContent = MODEL_PRIORITY_LABELS[priority];
-  document.getElementById("model-text").textContent = lists.text[0] || "—";
-  document.getElementById("model-tts").textContent = lists.tts[0] || "—";
-  // 切り替え先がないときは「—」と表示します。
-  document.getElementById("model-text-fallback").textContent = lists.text[1] || "—";
-  document.getElementById("model-tts-fallback").textContent = lists.tts[1] || "—";
+  document.getElementById("model-text-selection").textContent = MODEL_SELECTION_LABELS[lists.text.selection] || "—";
+  document.getElementById("model-tts-selection").textContent = MODEL_SELECTION_LABELS[lists.tts.selection] || "—";
+  document.getElementById("model-text").textContent = lists.text.model || "—";
+  document.getElementById("model-tts").textContent = lists.tts.model || "—";
 }
 
 async function loadModelInfo() {
@@ -3930,10 +3922,10 @@ async function loadModelInfo() {
     const response = await fetch("/api/models", { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
-    const isList = (list) => Array.isArray(list) && list.length && list.every((model) => typeof model === "string");
+    const isModel = (item) => typeof item?.model === "string" && item.model && MODEL_PRIORITIES.includes(item.selection);
     for (const priority of MODEL_PRIORITIES) {
       const lists = data?.[priority];
-      if (isList(lists?.text) && isList(lists?.tts)) modelLists[priority] = { text: lists.text, tts: lists.tts };
+      if (isModel(lists?.text) && isModel(lists?.tts)) modelLists[priority] = { text: lists.text, tts: lists.tts };
     }
     renderModelInfo();
   } catch {

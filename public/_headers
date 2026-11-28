@@ -1,0 +1,9 @@
+# 画面を変更したときに、ブラウザが古いページを使い続けないよう、毎回新しいかどうかを確かめさせます。
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+/style.css
+  Cache-Control: public, max-age=0, must-revalidate
+/script.js
+  Cache-Control: public, max-age=0, must-revalidate

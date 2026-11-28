@@ -1,0 +1,15 @@
+{
+  "name": "yomiage",
+  "private": true,
+  "type": "module",
+  "description": "日本語の文章を読み上げるWebアプリ（Cloudflare Workers + AI Gateway）",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.169.0"
+  }
+}
